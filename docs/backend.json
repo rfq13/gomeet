@@ -1,0 +1,209 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the GoMeet application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity."
+        },
+        "username": {
+          "type": "string",
+          "description": "The username of the user."
+        },
+        "email": {
+          "type": "string",
+          "description": "The email address of the user.",
+          "format": "email"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "The timestamp when the user account was created.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "email",
+        "createdAt"
+      ]
+    },
+    "Meeting": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Meeting",
+      "type": "object",
+      "description": "Represents a meeting scheduled within the GoMeet application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Meeting entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the meeting."
+        },
+        "startTime": {
+          "type": "string",
+          "description": "The date and time when the meeting is scheduled to start.",
+          "format": "date-time"
+        },
+        "duration": {
+          "type": "number",
+          "description": "The duration of the meeting in minutes."
+        },
+        "hostId": {
+          "type": "string",
+          "description": "Reference to the User hosting the meeting. (Relationship: User 1:N Meeting)"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "startTime",
+        "duration",
+        "hostId"
+      ]
+    },
+    "Peer": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Peer",
+      "description": "Represents a participant in a WebRTC session.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "answer": {
+          "type": "object"
+        }
+      }
+    },
+    "Offer": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Offer",
+      "description": "Represents a WebRTC offer.",
+      "type": "object",
+      "properties": {
+        "offer": {
+          "type": "object"
+        }
+      }
+    },
+    "IceCandidate": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "IceCandidate",
+      "description": "Represents a WebRTC ICE candidate.",
+      "type": "object",
+      "properties": {}
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles.  Uses path-based ownership for private user data.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/meetings/{meetingId}",
+        "definition": {
+          "entityName": "Meeting",
+          "schema": {
+            "$ref": "#/backend/entities/Meeting"
+          },
+          "description": "Stores meeting details in a top-level collection for easier access by all participants.",
+          "params": [
+            {
+              "name": "meetingId",
+              "description": "The unique identifier of the meeting."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/meetings/{meetingId}/peers/{peerId}",
+        "definition": {
+          "entityName": "Peer",
+          "schema": {
+            "$ref": "#/backend/entities/Peer"
+          },
+          "description": "Stores active participants in a meeting for WebRTC signaling.",
+          "params": [
+            {
+              "name": "meetingId"
+            },
+            {
+              "name": "peerId"
+            }
+          ]
+        }
+      },
+      {
+        "path": "/meetings/{meetingId}/peers/{peerId}/offers/{offererId}",
+        "definition": {
+          "entityName": "Offer",
+          "schema": {
+            "$ref": "#/backend/entities/Offer"
+          },
+          "description": "Stores WebRTC offers from one peer to another.",
+          "params": [
+            {
+              "name": "meetingId"
+            },
+            {
+              "name": "peerId"
+            },
+            {
+              "name": "offererId"
+            }
+          ]
+        }
+      },
+      {
+        "path": "/meetings/{meetingId}/peers/{peerId}/iceCandidates/{candidateId}",
+        "definition": {
+          "entityName": "IceCandidate",
+          "schema": {
+            "$ref": "#/backend/entities/IceCandidate"
+          },
+          "description": "Stores ICE candidates for WebRTC connection negotiation.",
+          "params": [
+            {
+              "name": "meetingId"
+            },
+            {
+              "name": "peerId"
+            },
+            {
+              "name": "candidateId"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
