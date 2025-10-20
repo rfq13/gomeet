@@ -1,5 +1,10 @@
+packages:
+  - "packages/*"
+
 ignoredBuiltDependencies:
-  - '@firebase/util'
+  - "@firebase/util"
   - esbuild
   - protobufjs
   - sharp
+onlyBuiltDependencies:
+  - esbuild

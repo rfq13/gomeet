@@ -1,0 +1,33 @@
+{
+  "name": "gomeet-backend",
+  "version": "1.0.0",
+  "description": "GoMeet Backend API",
+  "private": true,
+  "scripts": {
+    "dev": "air",
+    "build": "go build -o ./bin/main ./cmd/server",
+    "start": "./bin/main",
+    "test": "go test ./...",
+    "test:coverage": "go test -cover ./...",
+    "lint": "golangci-lint run",
+    "typecheck": "go vet ./...",
+    "swag": "swag init -g cmd/server/main.go",
+    "migrate:up": "go run cmd/server/main.go migrate up",
+    "migrate:down": "go run cmd/server/main.go migrate down",
+    "migrate": "go run cmd/server/main.go migrate",
+    "seed": "go run cmd/server/main.go seed",
+    "clean": "rm -rf ./bin"
+  },
+  "devDependencies": {
+    "air": "^0.4.14"
+  },
+  "keywords": [
+    "go",
+    "api",
+    "backend",
+    "websocket",
+    "webrtc"
+  ],
+  "author": "GoMeet Team",
+  "license": "MIT"
+}

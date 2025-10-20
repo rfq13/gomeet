@@ -1,0 +1,99 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15
+    container_name: gomeet-postgres
+    environment:
+      POSTGRES_DB: gomeet_db
+      POSTGRES_USER: gomeet
+      POSTGRES_PASSWORD: gomeet_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./packages/backend/migrations:/docker-entrypoint-initdb.d
+    networks:
+      - gomeet-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: gomeet-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - gomeet-network
+
+  # Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    container_name: gomeet-backend
+    environment:
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: gomeet
+      DB_PASSWORD: gomeet_password
+      DB_NAME: gomeet_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:4173
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - gomeet-network
+    volumes:
+      - ./packages/backend:/app
+    working_dir: /app
+
+  # Frontend (SvelteKit)
+  frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+    container_name: gomeet-frontend
+    environment:
+      PUBLIC_API_URL: http://localhost:8080/api/v1
+      PUBLIC_WS_URL: ws://localhost:8080
+      PUBLIC_APP_NAME: GoMeet
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - gomeet-network
+    volumes:
+      - ./packages/frontend:/app
+    working_dir: /app
+
+  # LiveKit Server untuk video calling
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: gomeet-livekit
+    command: --dev
+    environment:
+      LIVEKIT_KEYS: your-livekit-api-key:your-livekit-api-secret
+    ports:
+      - "7880:7880"
+      - "7881:7881" # HTTP
+      - "7882:7882" # RTC (UDP/TCP)
+    networks:
+      - gomeet-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  gomeet-network:
+    driver: bridge
