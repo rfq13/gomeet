@@ -57,10 +57,11 @@ export default function LoginPage() {
 
   const onSubmit = async (data: LoginFormValues) => {
     try {
-      await login(data.email, data.password);
-      toast({
-        title: "Login Successful",
-        description: "Welcome back!",
+      await login(data.email, data.password, () => {
+        toast({
+          title: "Login Successful",
+          description: "Welcome back!",
+        });
       });
     } catch (error: any) {
       // Error is handled by the auth context and displayed via toast

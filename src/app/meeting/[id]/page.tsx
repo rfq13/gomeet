@@ -42,6 +42,10 @@ import { publicUserService } from "@/lib/public-user-service";
 import { WebSocketService } from "@/lib/websocket-service";
 import { createWebRTCManager } from "@/lib/webrtc-manager";
 import { Participant } from "@/types/webrtc";
+import {
+  safeGetLocalStorageItem,
+  safeRemoveLocalStorageItem,
+} from "@/lib/storage-utils";
 
 // WebRTC configuration
 const servers = {
@@ -258,7 +262,8 @@ export default function MeetingPage() {
           setIsPublicUser(true);
 
           try {
-            const sessionId = localStorage.getItem("public_session_id");
+            // Safe localStorage access
+            const sessionId = safeGetLocalStorageItem("public_session_id");
             if (sessionId) {
               // Check if session exists in backend
               const existingUser =
@@ -269,7 +274,7 @@ export default function MeetingPage() {
                 console.log("Found existing public user:", existingUser);
               } else {
                 // Session ID exists but user not found, clear it
-                localStorage.removeItem("public_session_id");
+                safeRemoveLocalStorageItem("public_session_id");
                 console.log(
                   "Session ID found but user not found, clearing session"
                 );
@@ -466,10 +471,7 @@ export default function MeetingPage() {
   const getAuthToken = async (): Promise<string> => {
     // Get token from localStorage or auth context
     // This depends on your auth implementation
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("token") || "";
-    }
-    return "";
+    return safeGetLocalStorageItem("token") || "";
   };
 
   // --- Speaking Detection Logic ---

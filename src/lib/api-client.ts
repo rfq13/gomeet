@@ -1,4 +1,9 @@
 // API Client untuk komunikasi dengan backend Golang
+import {
+  safeGetLocalStorageItem,
+  safeSetLocalStorageItem,
+  safeRemoveLocalStorageItem,
+} from "./storage-utils";
 
 export interface APIError {
   code: string;
@@ -40,15 +45,42 @@ class APIClient {
 
     // Load token dari localStorage saat inisialisasi (client-side only)
     if (typeof window !== "undefined") {
-      this.accessToken = localStorage.getItem("accessToken");
+      // DEBUG LOGGING: Check localStorage availability
+      console.log(
+        "[DEBUG] API Client - Window available:",
+        typeof window !== "undefined"
+      );
+      console.log(
+        "[DEBUG] API Client - localStorage available:",
+        typeof localStorage !== "undefined"
+      );
+      console.log(
+        "[DEBUG] API Client - localStorage.getItem type:",
+        typeof localStorage?.getItem
+      );
+
+      if (
+        typeof localStorage !== "undefined" &&
+        typeof localStorage.getItem === "function"
+      ) {
+        this.accessToken = localStorage.getItem("accessToken");
+        console.log(
+          "[DEBUG] API Client - Access token loaded:",
+          !!this.accessToken
+        );
+      } else {
+        console.log(
+          "[DEBUG] API Client - localStorage.getItem is not a function!"
+        );
+      }
       this.isHydrated = true;
     }
   }
 
   // Method to set hydration state
   setHydrated() {
-    if (typeof window !== "undefined" && !this.isHydrated) {
-      this.accessToken = localStorage.getItem("accessToken");
+    if (!this.isHydrated) {
+      this.accessToken = safeGetLocalStorageItem("accessToken");
       this.isHydrated = true;
     }
   }
@@ -166,10 +198,28 @@ class APIClient {
   }
 
   async refreshToken(): Promise<string> {
-    const refreshToken =
+    // DEBUG LOGGING: Check localStorage availability for refresh token
+    console.log(
+      "[DEBUG] Refresh Token - Window available:",
       typeof window !== "undefined"
+    );
+    console.log(
+      "[DEBUG] Refresh Token - localStorage available:",
+      typeof localStorage !== "undefined"
+    );
+    console.log(
+      "[DEBUG] Refresh Token - localStorage.getItem type:",
+      typeof localStorage?.getItem
+    );
+
+    const refreshToken =
+      typeof window !== "undefined" &&
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.getItem === "function"
         ? localStorage.getItem("refreshToken")
         : null;
+
+    console.log("[DEBUG] Refresh token retrieved:", !!refreshToken);
 
     if (!refreshToken) {
       throw new APIException({
@@ -196,19 +246,17 @@ class APIClient {
   private setTokens(accessToken: string, refreshToken: string): void {
     this.accessToken = accessToken;
 
-    if (typeof window !== "undefined") {
-      localStorage.setItem("accessToken", accessToken);
-      localStorage.setItem("refreshToken", refreshToken);
-    }
+    // Use safe localStorage methods
+    safeSetLocalStorageItem("accessToken", accessToken);
+    safeSetLocalStorageItem("refreshToken", refreshToken);
   }
 
   private clearTokens(): void {
     this.accessToken = null;
 
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("accessToken");
-      localStorage.removeItem("refreshToken");
-    }
+    // Use safe localStorage methods
+    safeRemoveLocalStorageItem("accessToken");
+    safeRemoveLocalStorageItem("refreshToken");
   }
 
   // Public method to get current token
@@ -219,12 +267,10 @@ class APIClient {
   // Public method to set token from outside
   setAccessToken(token: string | null): void {
     this.accessToken = token;
-    if (typeof window !== "undefined") {
-      if (token) {
-        localStorage.setItem("accessToken", token);
-      } else {
-        localStorage.removeItem("accessToken");
-      }
+    if (token) {
+      safeSetLocalStorageItem("accessToken", token);
+    } else {
+      safeRemoveLocalStorageItem("accessToken");
     }
   }
 }

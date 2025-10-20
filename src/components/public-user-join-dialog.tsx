@@ -154,19 +154,27 @@ export function PublicUserJoinDialog({
   };
 
   const handleClose = () => {
-    if (!isLoading) {
-      onOpenChange(false);
-    }
+    // Dialog tidak bisa ditutup secara manual - user harus mengisi nama dan bergabung
+    // Hanya bisa ditutup setelah berhasil bergabung (dipanggil dari handleJoin)
+    return;
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[425px]">
+    <Dialog
+      open={isOpen}
+      onOpenChange={() => {
+        /* Prevent closing */
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-[425px]"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Bergabung ke Meeting</DialogTitle>
           <DialogDescription>
             {prefilledUserName
-              ? `Selamat datang kembali, ${prefilledUserName}! Klik "Bergabung" untuk masuk ke meeting.`
+              ? `Selamat datang kembali, ${prefilledUserName}! Masukkan nama Anda untuk melanjutkan.`
               : "Masukkan nama Anda untuk bergabung ke meeting sebagai tamu."}
           </DialogDescription>
         </DialogHeader>
@@ -195,18 +203,11 @@ export function PublicUserJoinDialog({
         <DialogFooter>
           <Button
             type="button"
-            variant="outline"
-            onClick={handleClose}
-            disabled={isLoading}
-          >
-            Batal
-          </Button>
-          <Button
-            type="button"
             onClick={handleJoin}
             disabled={isLoading || !name.trim()}
+            className="w-full"
           >
-            {isLoading ? "Menggabungkan..." : "Bergabung"}
+            {isLoading ? "Menggabungkan..." : "Bergabung ke Meeting"}
           </Button>
         </DialogFooter>
       </DialogContent>

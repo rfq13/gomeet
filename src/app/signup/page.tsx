@@ -72,7 +72,7 @@ export default function SignupPage() {
 
   const onSubmit = async (data: SignupFormValues) => {
     try {
-      await register(data.email, data.password, data.fullName);
+      await register(data);
       toast({
         title: "Account Created",
         description: "Your account has been created successfully!",

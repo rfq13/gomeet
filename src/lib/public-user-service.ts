@@ -1,4 +1,10 @@
+"use client";
 import { apiClient } from "./api-client";
+import {
+  safeGetLocalStorageItem,
+  safeSetLocalStorageItem,
+  safeRemoveLocalStorageItem,
+} from "./storage-utils";
 
 export interface PublicUser {
   id: string;
@@ -89,17 +95,63 @@ export class PublicUserService {
 
   // Helper method to get or create session ID from localStorage
   getOrCreateSessionId(): string {
-    let sessionId = localStorage.getItem("public_session_id");
-    if (!sessionId) {
-      sessionId = this.generateSessionId();
-      localStorage.setItem("public_session_id", sessionId);
+    // Check if we're in browser environment
+    if (typeof window === "undefined") {
+      // Return a temporary session ID for server-side rendering
+      return this.generateSessionId();
     }
-    return sessionId;
+
+    // DEBUG LOGGING: Check localStorage availability
+    console.log(
+      "[DEBUG] Public User Service - Window available:",
+      typeof window !== "undefined"
+    );
+    console.log(
+      "[DEBUG] Public User Service - localStorage available:",
+      typeof localStorage !== "undefined"
+    );
+    console.log(
+      "[DEBUG] Public User Service - localStorage.getItem type:",
+      typeof localStorage?.getItem
+    );
+    console.log(
+      "[DEBUG] Public User Service - localStorage.setItem type:",
+      typeof localStorage?.setItem
+    );
+
+    if (
+      typeof localStorage !== "undefined" &&
+      typeof localStorage.getItem === "function"
+    ) {
+      let sessionId = localStorage.getItem("public_session_id");
+      console.log(
+        "[DEBUG] Public User Service - Existing session ID:",
+        !!sessionId
+      );
+
+      if (!sessionId) {
+        sessionId = this.generateSessionId();
+        if (typeof localStorage.setItem === "function") {
+          localStorage.setItem("public_session_id", sessionId);
+          console.log("[DEBUG] Public User Service - New session ID saved");
+        } else {
+          console.log(
+            "[DEBUG] Public User Service - localStorage.setItem is not a function!"
+          );
+        }
+      }
+      return sessionId;
+    } else {
+      console.log(
+        "[DEBUG] Public User Service - localStorage.getItem is not a function!"
+      );
+      return this.generateSessionId();
+    }
   }
 
   // Helper method to clear session ID
   clearSessionId(): void {
-    localStorage.removeItem("public_session_id");
+    safeRemoveLocalStorageItem("public_session_id");
   }
 }
 

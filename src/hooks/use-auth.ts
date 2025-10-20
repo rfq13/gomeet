@@ -13,11 +13,11 @@ interface UseAuthState {
 
 interface UseAuthActions {
   login: (email: string, password: string) => Promise<void>;
-  register: (
-    username: string,
-    email: string,
-    password: string
-  ) => Promise<void>;
+  register: (data: {
+    fullName: string;
+    email: string;
+    password: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
   clearError: () => void;
@@ -100,7 +100,7 @@ export function useAuth(): UseAuthState & UseAuthActions {
 
   // Login function
   const login = useCallback(
-    async (email: string, password: string) => {
+    async (email: string, password: string, onSuccess?: Function) => {
       try {
         updateState({ loading: true, error: null });
 
@@ -112,6 +112,8 @@ export function useAuth(): UseAuthState & UseAuthActions {
           error: null,
           isAuthenticated: true,
         });
+
+        if (onSuccess) onSuccess();
       } catch (error) {
         handleError(error);
       }
@@ -121,11 +123,15 @@ export function useAuth(): UseAuthState & UseAuthActions {
 
   // Register function
   const register = useCallback(
-    async (username: string, email: string, password: string) => {
+    async (data: { fullName: string; email: string; password: string }) => {
       try {
         updateState({ loading: true, error: null });
 
-        const response = await authService.register(username, email, password);
+        const response = await authService.register(
+          data.fullName,
+          data.email,
+          data.password
+        );
 
         updateState({
           user: response.user,

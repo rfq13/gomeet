@@ -10,12 +10,16 @@ interface AuthContextType {
   error: string | null;
   isAuthenticated: boolean;
   isHydrated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (
-    username: string,
+  login: (
     email: string,
-    password: string
+    password: string,
+    onSuccess?: Function
   ) => Promise<void>;
+  register: (data: {
+    fullName: string;
+    email: string;
+    password: string;
+  }) => Promise<void>;
   logout: () => Promise<void>;
   refreshToken: () => Promise<void>;
   clearError: () => void;
