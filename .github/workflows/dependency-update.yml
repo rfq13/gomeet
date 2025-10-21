@@ -1,0 +1,287 @@
+name: Dependency Update
+
+on:
+  schedule:
+    # Run dependency check weekly on Monday at 9 AM UTC
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update-go-dependencies:
+    name: Update Go Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        
+    - name: Update Go modules
+      working-directory: ./packages/backend
+      run: |
+        go get -u ./...
+        go mod tidy
+        
+    - name: Run tests after update
+      working-directory: ./packages/backend
+      run: go test -v ./...
+      
+    - name: Check for changes
+      id: verify-changed-files
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Create Pull Request
+      if: steps.verify-changed-files.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: update Go dependencies'
+        title: 'chore: update Go dependencies'
+        body: |
+          🤖 This PR updates Go dependencies to their latest versions.
+          
+          ## Changes
+          - Updated Go modules to latest compatible versions
+          - Ran `go mod tidy` to clean up dependencies
+          
+          ## Testing
+          - All tests pass after dependency updates
+          
+          Please review the changes and ensure everything works as expected.
+        branch: chore/update-go-dependencies
+        delete-branch: true
+
+  update-node-dependencies:
+    name: Update Node.js Dependencies
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: packages/frontend/package-lock.json
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+        
+    - name: Update dependencies
+      working-directory: ./packages/frontend
+      run: |
+        pnpm update --latest
+        pnpm install --frozen-lockfile=false
+        
+    - name: Run tests after update
+      working-directory: ./packages/frontend
+      run: |
+        pnpm test:run
+        pnpm build
+        
+    - name: Check for changes
+      id: verify-changed-files
+      run: |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "changed=true" >> $GITHUB_OUTPUT
+        else
+          echo "changed=false" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Create Pull Request
+      if: steps.verify-changed-files.outputs.changed == 'true'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: update Node.js dependencies'
+        title: 'chore: update Node.js dependencies'
+        body: |
+          🤖 This PR updates Node.js dependencies to their latest versions.
+          
+          ## Changes
+          - Updated npm packages to latest compatible versions
+          - Updated pnpm-lock.yaml with new dependency versions
+          
+          ## Testing
+          - All tests pass after dependency updates
+          - Build process completes successfully
+          
+          Please review the changes and ensure everything works as expected.
+        branch: chore/update-node-dependencies
+        delete-branch: true
+
+  check-docker-base-images:
+    name: Check Docker Base Images
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Check for base image updates
+      run: |
+        echo "Checking for Docker base image updates..."
+        
+        # Check Go image
+        GO_LATEST=$(curl -s "https://registry.hub.docker.com/v2/repositories/library/golang/tags/?name=1.21-alpine" | jq -r '.results[0].name')
+        echo "Latest Go image: $GO_LATEST"
+        
+        # Check Node image
+        NODE_LATEST=$(curl -s "https://registry.hub.docker.com/v2/repositories/library/node/tags/?name=18-alpine" | jq -r '.results[0].name')
+        echo "Latest Node image: $NODE_LATEST"
+        
+        # Check Alpine image
+        ALPINE_LATEST=$(curl -s "https://registry.hub.docker.com/v2/repositories/library/alpine/tags/?name=latest" | jq -r '.results[0].name')
+        echo "Latest Alpine image: $ALPINE_LATEST"
+        
+        # Save to file for later use
+        echo "GO_LATEST=$GO_LATEST" >> base-images.env
+        echo "NODE_LATEST=$NODE_LATEST" >> base-images.env
+        echo "ALPINE_LATEST=$ALPINE_LATEST" >> base-images.env
+        
+    - name: Upload base image versions
+      uses: actions/upload-artifact@v3
+      with:
+        name: base-image-versions
+        path: base-images.env
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        
+    - name: Run Go security audit
+      working-directory: ./packages/backend
+      run: |
+        go list -json -m all | nancy sleuth
+        
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+        
+    - name: Install dependencies
+      working-directory: ./packages/frontend
+      run: pnpm install --frozen-lockfile
+      
+    - name: Run Node.js security audit
+      working-directory: ./packages/frontend
+      run: |
+        pnpm audit --audit-level moderate
+        
+    - name: Create security audit report
+      run: |
+        echo "# Dependency Security Audit Report" > security-audit.md
+        echo "" >> security-audit.md
+        echo "Generated on: $(date)" >> security-audit.md
+        echo "" >> security-audit.md
+        echo "## Findings" >> security-audit.md
+        echo "- Review the workflow logs for detailed security audit results" >> security-audit.md
+        echo "- Address any high or critical vulnerabilities found" >> security-audit.md
+        echo "- Consider updating dependencies with known security issues" >> security-audit.md
+        
+    - name: Upload security audit report
+      uses: actions/upload-artifact@v3
+      with:
+        name: security-audit-report
+        path: security-audit.md
+
+  dependency-report:
+    name: Dependency Update Report
+    runs-on: ubuntu-latest
+    needs: [update-go-dependencies, update-node-dependencies, check-docker-base-images, security-audit]
+    if: always()
+    
+    steps:
+    - name: Download base image versions
+      uses: actions/download-artifact@v3
+      with:
+        name: base-image-versions
+        
+    - name: Download security audit report
+      uses: actions/download-artifact@v3
+      with:
+        name: security-audit-report
+        
+    - name: Create dependency update summary
+      run: |
+        echo "# Dependency Update Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Generated on: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Update Status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Task | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Go Dependencies Update | ${{ needs.update-go-dependencies.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Node.js Dependencies Update | ${{ needs.update-node-dependencies.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Docker Base Images Check | ${{ needs.check-docker-base-images.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Audit | ${{ needs.security-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "base-images.env" ]; then
+          source base-images.env
+          echo "## Latest Base Image Versions" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Go: $GO_LATEST" >> $GITHUB_STEP_SUMMARY
+          echo "- Node.js: $NODE_LATEST" >> $GITHUB_STEP_SUMMARY
+          echo "- Alpine: $ALPINE_LATEST" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "## Recommendations" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Review and merge dependency update PRs if tests pass" >> $GITHUB_STEP_SUMMARY
+        echo "- Consider updating Docker base images if newer versions are available" >> $GITHUB_STEP_SUMMARY
+        echo "- Address any security vulnerabilities found during audit" >> $GITHUB_STEP_SUMMARY
+        echo "- Monitor application performance after dependency updates" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Notify team on updates
+      if: needs.update-go-dependencies.result == 'success' || needs.update-node-dependencies.result == 'success'
+      uses: 8398a7/action-slack@v3
+      with:
+        status: success
+        channel: '#dependencies'
+        text: |
+          📦 Dependency updates are available!
+          
+          **Repository:** ${{ github.repository }}
+          **Workflow:** Dependency Update
+          
+          Check the created pull requests for:
+          - Go dependencies updates
+          - Node.js dependencies updates
+          
+          Please review and test before merging.
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.DEPENDENCIES_SLACK_WEBHOOK_URL }}

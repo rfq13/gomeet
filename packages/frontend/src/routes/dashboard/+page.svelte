@@ -25,6 +25,9 @@
 			
 			// Update user
 			user = state.user;
+			if(!user){
+				goto('/')
+			}
 			
 			// Only load meetings once when user is authenticated and hydrated
 			if (state.user && state.isHydrated && !meetingsLoaded) {

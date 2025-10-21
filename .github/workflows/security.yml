@@ -1,0 +1,252 @@
+name: Security Scan
+
+on:
+  schedule:
+    # Run security scan daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  security-scan-backend:
+    name: Security Scan - Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        
+    - name: Run Gosec Security Scanner
+      uses: securecodewarrior/github-action-gosec@master
+      with:
+        args: '-no-fail -fmt sarif -out results.sarif ./...'
+        
+    - name: Upload Gosec scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'results.sarif'
+        
+    - name: Run Trivy vulnerability scanner in repo mode
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  security-scan-frontend:
+    name: Security Scan - Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: packages/frontend/package-lock.json
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+        
+    - name: Install dependencies
+      working-directory: ./packages/frontend
+      run: pnpm install --frozen-lockfile
+      
+    - name: Run npm audit
+      working-directory: ./packages/frontend
+      run: pnpm audit --audit-level moderate
+      
+    - name: Run Snyk to check for vulnerabilities
+      uses: snyk/actions/node@master
+      continue-on-error: true
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high
+        command: monitor
+        args: --org=your-org-name --project-name=gomeet-frontend
+
+  container-security-scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      
+    strategy:
+      matrix:
+        service: [backend, frontend]
+        
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./packages/${{ matrix.service }}/Dockerfile
+        push: false
+        load: true
+        tags: gomeet-${{ matrix.service }}:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        
+    - name: Run Trivy vulnerability scanner on container
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: 'gomeet-${{ matrix.service }}:test'
+        format: 'sarif'
+        output: 'trivy-container-${{ matrix.service }}.sarif'
+        
+    - name: Upload Trivy container scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-container-${{ matrix.service }}.sarif'
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+        
+    - name: Run OWASP Dependency Check for Go
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'gomeet-backend'
+        path: './packages/backend'
+        format: 'HTML'
+        
+    - name: Upload OWASP Dependency Check results
+      uses: actions/upload-artifact@v3
+      with:
+        name: owasp-dependency-check-backend
+        path: reports/
+        
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        
+    - name: Install pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: 8
+        
+    - name: Install dependencies
+      working-directory: ./packages/frontend
+      run: pnpm install --frozen-lockfile
+      
+    - name: Run OWASP Dependency Check for Node.js
+      uses: dependency-check/Dependency-Check_Action@main
+      with:
+        project: 'gomeet-frontend'
+        path: './packages/frontend'
+        format: 'HTML'
+        
+    - name: Upload OWASP Dependency Check results
+      uses: actions/upload-artifact@v3
+      with:
+        name: owasp-dependency-check-frontend
+        path: reports/
+
+  secrets-scan:
+    name: Secrets Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Run Gitleaks
+      uses: gitleaks/gitleaks-action@v2
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        
+    - name: Run TruffleHog OSS
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: HEAD
+        extra_args: --debug --only-verified
+
+  security-report:
+    name: Security Report
+    runs-on: ubuntu-latest
+    needs: [security-scan-backend, security-scan-frontend, container-security-scan, dependency-check, secrets-scan]
+    if: always()
+    
+    steps:
+    - name: Create security summary
+      run: |
+        echo "# Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Backend Security Scan | ${{ needs.security-scan-backend.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend Security Scan | ${{ needs.security-scan-frontend.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Container Security Scan | ${{ needs.container-security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Dependency Check | ${{ needs.dependency-check.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Secrets Scan | ${{ needs.secrets-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## Recommendations" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- Review any high or critical vulnerabilities found" >> $GITHUB_STEP_SUMMARY
+        echo "- Update dependencies to latest secure versions" >> $GITHUB_STEP_SUMMARY
+        echo "- Rotate any exposed secrets or credentials" >> $GITHUB_STEP_SUMMARY
+        echo "- Implement security best practices in code" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Notify security team on failure
+      if: failure()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#security'
+        text: |
+          🚨 Security scan failed!
+          
+          **Repository:** ${{ github.repository }}
+          **Branch:** ${{ github.ref_name }}
+          **Commit:** ${{ github.sha }}
+          
+          Please check the workflow logs for details and review the security findings.
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}

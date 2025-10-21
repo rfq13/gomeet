@@ -183,6 +183,138 @@ export interface WebRTCManagerOptions {
   rtcConfig: WebRTCConfig;
 }
 
+// WebSocket signaling types
+export type SignalingMessageType =
+  | "offer"
+  | "answer"
+  | "ice-candidate"
+  | "join"
+  | "leave"
+  | "participant-joined"
+  | "participant-left"
+  | "chat-message"
+  | "chat-message-edit"
+  | "chat-message-delete"
+  | "chat-reaction"
+  | "chat-read-status"
+  | "chat-typing"
+  | "chat-typing-stop";
+
+export interface SignalingMessage {
+  type: SignalingMessageType;
+  meetingId: string;
+  from: string;
+  to: string;
+  data: any;
+  timestamp: Date;
+}
+
+export interface JoinPayload {
+  participantId: string;
+  name: string;
+  avatarUrl?: string;
+  isAuthenticated: boolean;
+}
+
+export interface LeavePayload {
+  participantId: string;
+}
+
+export interface OfferAnswerPayload {
+  sdp: string;
+}
+
+export interface ICECandidatePayload {
+  candidate: string;
+  sdpMLineIndex: number;
+  sdpMid: string;
+}
+
+export interface ChatMessagePayload {
+  messageId: string;
+  meetingId: string;
+  userId?: string;
+  publicUserId?: string;
+  messageType: "text" | "image" | "file";
+  content: string;
+  replyToId?: string;
+  attachmentUrl?: string;
+  attachmentType?: string;
+  attachmentName?: string;
+  isEdited: boolean;
+  editedAt?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
+  messageStatus: "sent" | "delivered" | "read";
+  createdAt: string;
+  user?: User;
+  publicUser?: PublicUser;
+}
+
+export interface ChatReactionPayload {
+  messageId: string;
+  userId?: string;
+  publicUserId?: string;
+  reaction: string;
+  action: "add" | "remove";
+  createdAt: string;
+  user?: User;
+  publicUser?: PublicUser;
+}
+
+export interface ChatReadStatusPayload {
+  messageId: string;
+  userId?: string;
+  publicUserId?: string;
+  readAt: string;
+}
+
+export interface ChatTypingPayload {
+  userId?: string;
+  publicUserId?: string;
+  userName: string;
+  isTyping: boolean;
+}
+
+// Public User types
+export interface PublicUser {
+  id: string;
+  name: string;
+  sessionId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PublicUserResponse {
+  id: string;
+  name: string;
+  sessionId: string;
+  createdAt: string;
+}
+
+export interface CreatePublicUserRequest {
+  name: string;
+  sessionId: string;
+}
+
+export interface JoinMeetingAsPublicUserRequest {
+  sessionId: string;
+  meetingId: string;
+}
+
+export interface LeaveMeetingAsPublicUserRequest {
+  sessionId: string;
+  meetingId: string;
+}
+
+export interface UserResponse {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // API types
 export interface APIResponse<T = any> {
   success: boolean;

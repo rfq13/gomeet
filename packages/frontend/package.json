@@ -23,7 +23,6 @@
     "bits-ui": "^0.21.0",
     "clsx": "^2.1.0",
     "date-fns": "^3.6.0",
-    "livekit-client": "^2.5.0",
     "lucide-svelte": "^0.460.1",
     "tailwind-merge": "^2.2.0",
     "tailwindcss-animate": "^1.0.7"

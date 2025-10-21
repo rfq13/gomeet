@@ -3,22 +3,18 @@
 	import { page } from '$app/state';
 	import { apiClient } from '$lib/api-client';
 	import { authStore } from '../../../lib/stores/auth.store';
+	import { createWebRTCService, type PeerConnection } from '$lib/webrtc-service';
 	import { onMount } from 'svelte';
+	import type { Meeting, JoinPayload, LeavePayload } from '$types';
+	import { PublicUserModal } from '$components';
+
+	// WebRTC state
+	let webrtcService = $state<any>(null);
+	let peers = $state<PeerConnection[]>([]);
+	let connectionStatus = $state<'disconnected' | 'connecting' | 'connected'>('disconnected');
+
 
 	// Types
-	interface Meeting {
-		id: string;
-		title: string;
-		description?: string;
-		hostId: string;
-		hostName: string;
-		startTime: string;
-		duration: number;
-		isActive: boolean;
-		createdAt: string;
-		updatedAt: string;
-	}
-
 	interface ParticipantAudio {
 		[key: string]: number; // participant id -> audio level
 	}
@@ -29,6 +25,12 @@
 	let loading = $state(true);
 	let error = $state<string | null>(null);
 	let hasCameraPermission = $state<boolean | null>(null);
+	
+	// Public user state
+	let showPublicUserModal = $state(false);
+	let publicSessionId = $state<string | null>(null);
+	let publicUserName = $state('');
+	let isPublicUser = $state(false);
 
 	// Media state
 	let isMicOn = $state(true);
@@ -38,6 +40,7 @@
 	let participantAudioLevels = $state<ParticipantAudio>({});
 	
 	let localVideoElement: HTMLVideoElement | undefined;
+	let remoteVideoElements: { [key: string]: HTMLVideoElement } = {};
 	let audioContext: AudioContext | null = null;
 	let analyser: AnalyserNode | null = null;
 	let animationFrameId: number | null = null;
@@ -54,10 +57,24 @@
 		return unsubscribe;
 	});
 
-	// Load meeting data
+	// Load meeting data and initialize WebRTC
 	$effect(() => {
 		if (meetingId) {
 			loadMeeting();
+		}
+	});
+
+	// Check for public user session when component mounts
+	$effect(() => {
+		if (!user && meetingId) {
+			checkPublicUserSession();
+		}
+	});
+
+	// Initialize WebRTC when meeting and local stream are ready
+	$effect(() => {
+		if (meeting && localStream && !webrtcService) {
+			initializeWebRTC();
 		}
 	});
 
@@ -84,6 +101,130 @@
 			console.error('Load meeting error:', err);
 		} finally {
 			loading = false;
+		}
+	}
+
+	// Public user functions
+	async function checkPublicUserSession() {
+		try {
+			// Check localStorage for public_session_id
+			const sessionId = localStorage.getItem('public_session_id');
+			if (!sessionId) {
+				// Generate new session ID
+				const newSessionId = generateSessionId();
+				localStorage.setItem('public_session_id', newSessionId);
+				publicSessionId = newSessionId;
+				showPublicUserModal = true;
+				return;
+			}
+
+			publicSessionId = sessionId;
+
+			// Try to get existing public user
+			const publicUser = await apiClient.getPublicUserBySessionId(sessionId);
+			if (publicUser) {
+				publicUserName = publicUser.name;
+				isPublicUser = true;
+				// Join meeting as public user
+				await joinMeetingAsPublicUser(sessionId);
+			} else {
+				// Show modal for new public user
+				showPublicUserModal = true;
+			}
+		} catch (error) {
+			console.error('Error checking public user session:', error);
+			// Show modal as fallback
+			showPublicUserModal = true;
+		}
+	}
+
+	function generateSessionId(): string {
+		return 'pub_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+	}
+
+	async function handlePublicUserSubmit(name: string) {
+		try {
+			if (!publicSessionId) {
+				publicSessionId = generateSessionId();
+				localStorage.setItem('public_session_id', publicSessionId);
+			}
+
+			// Create public user
+			await apiClient.createPublicUser(name, publicSessionId);
+			publicUserName = name;
+			isPublicUser = true;
+			showPublicUserModal = false;
+
+			// Join meeting as public user
+			await joinMeetingAsPublicUser(publicSessionId);
+		} catch (error) {
+			console.error('Error creating public user:', error);
+			throw error;
+		}
+	}
+
+	async function joinMeetingAsPublicUser(sessionId: string) {
+		try {
+			await apiClient.joinMeetingAsPublicUser(sessionId, meetingId);
+			console.log('Public user joined meeting successfully');
+		} catch (error) {
+			console.error('Error joining meeting as public user:', error);
+			throw error;
+		}
+	}
+
+	async function leaveMeetingAsPublicUser() {
+		try {
+			if (publicSessionId && isPublicUser) {
+				await apiClient.leaveMeetingAsPublicUser(publicSessionId, meetingId);
+				console.log('Public user left meeting successfully');
+			}
+		} catch (error) {
+			console.error('Error leaving meeting as public user:', error);
+		}
+	}
+
+
+	async function initializeWebRTC() {
+		try {
+			console.log('[Meeting] Initializing WebRTC service');
+			
+			const token = localStorage.getItem('accessToken');
+			
+			webrtcService = createWebRTCService({
+				meetingId,
+				localStream: localStream!, // Non-null assertion since we check for it above
+				token: token || undefined,
+				onPeerJoined: (peer: PeerConnection) => {
+					console.log('[Meeting] Peer joined:', peer);
+					peers = [...peers, peer];
+				},
+				onPeerLeft: (peerId: string) => {
+					console.log('[Meeting] Peer left:', peerId);
+					peers = peers.filter(p => p.id !== peerId);
+					// Remove remote stream
+					if (remoteStreams[peerId]) {
+						delete remoteStreams[peerId];
+					}
+				},
+				onRemoteStream: (peerId: string, stream: MediaStream) => {
+					console.log('[Meeting] Received remote stream from:', peerId);
+					remoteStreams[peerId] = stream;
+				},
+				onPeerStateChange: (peerId: string, state: RTCPeerConnectionState) => {
+					console.log('[Meeting] Peer state changed:', peerId, state);
+				},
+				onError: (error: Error) => {
+					console.error('[Meeting] WebRTC error:', error);
+				},
+			});
+
+			await webrtcService.connect();
+			connectionStatus = 'connected';
+			console.log('[Meeting] WebRTC service connected');
+		} catch (error) {
+			console.error('[Meeting] Failed to initialize WebRTC:', error);
+			connectionStatus = 'disconnected';
 		}
 	}
 
@@ -147,12 +288,17 @@
 		animationFrameId = requestAnimationFrame(detectAudioLevel);
 	}
 
-	const toggleMic = () => {
+	const toggleMic = async () => {
 		if (localStream) {
 			localStream.getAudioTracks().forEach((track) => {
 				track.enabled = !track.enabled;
 				isMicOn = track.enabled;
 			});
+			
+			// Update WebRTC service
+			if (webrtcService) {
+				webrtcService.muteAudio(!isMicOn);
+			}
 		}
 	};
 
@@ -197,9 +343,25 @@
 				hasCameraPermission = false;
 			}
 		}
+
+		// Update WebRTC service with new stream
+		if (webrtcService && localStream) {
+			webrtcService.updateLocalStream(localStream);
+		}
 	};
 
-	const hangUp = () => {
+	const hangUp = async () => {
+		// Leave meeting as public user if applicable
+		if (isPublicUser) {
+			await leaveMeetingAsPublicUser();
+		}
+
+		// Cleanup WebRTC service
+		if (webrtcService) {
+			webrtcService.destroy();
+			webrtcService = null;
+		}
+
 		// Cleanup audio analyzer
 		if (animationFrameId !== null) {
 			cancelAnimationFrame(animationFrameId);
@@ -229,6 +391,14 @@
 			stream.getTracks().forEach((track) => track.stop());
 		});
 		remoteStreams = {};
+		
+		// Cleanup remote video elements
+		Object.values(remoteVideoElements).forEach((video) => {
+			if (video) {
+				video.srcObject = null;
+			}
+		});
+		remoteVideoElements = {};
 
 		goto('/dashboard');
 	};
@@ -265,6 +435,22 @@
 				stream.getTracks().forEach((track) => track.stop());
 			});
 			remoteStreams = {};
+			
+			// Cleanup remote video elements
+			Object.values(remoteVideoElements).forEach((video) => {
+				if (video) {
+					video.srcObject = null;
+				}
+			});
+			remoteVideoElements = {};
+			
+			// Cleanup remote video elements
+			Object.values(remoteVideoElements).forEach((video) => {
+				if (video) {
+					video.srcObject = null;
+				}
+			});
+			remoteVideoElements = {};
 		};
 
 		const setup = async () => {
@@ -274,7 +460,17 @@
 		};
 
 		setup();
-		return cleanup;
+		
+		// Cleanup function
+		return () => {
+			// Cleanup WebRTC service
+			if (webrtcService) {
+				webrtcService.destroy();
+				webrtcService = null;
+			}
+			
+			cleanup();
+		};
 	});
 
 	// Setup media devices when meeting loads
@@ -289,6 +485,16 @@
 		if (localStream && localVideoElement) {
 			localVideoElement.srcObject = localStream;
 		}
+	});
+
+	// Bind remote streams to video elements
+	$effect(() => {
+		Object.keys(remoteStreams).forEach(peerId => {
+			const videoElement = remoteVideoElements[peerId];
+			if (videoElement && remoteStreams[peerId]) {
+				videoElement.srcObject = remoteStreams[peerId];
+			}
+		});
 	});
 
 	// Cleanup on unmount - ensures camera is stopped when user leaves the page
@@ -384,13 +590,20 @@
 					<span>Live</span>
 				</div>
 				<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
-					1 Participant
+					{peers.length + 1} Participant{peers.length !== 0 ? 's' : ''}
+				</div>
+				<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2">
+					<span class="relative flex h-2 w-2 mr-2">
+						<span class="animate-ping absolute inline-flex h-full w-full rounded-full {connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'} opacity-75"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2 {connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}"></span>
+					</span>
+					{connectionStatus}
 				</div>
 			</div>
 		</header>
 		
 		<div class="flex-1 flex relative">
-			<main class="flex-1 grid grid-cols-1 gap-4 p-4">
+			<main class="flex-1 grid grid-cols-1 {peers.length > 0 ? 'lg:grid-cols-2' : ''} gap-4 p-4">
 				<!-- Local video with sound indicator -->
 				<div class="relative rounded-lg overflow-hidden bg-card flex items-center justify-center group">
 					{#if localStream}
@@ -412,21 +625,21 @@
 					<!-- Sound indicator -->
 					{#if isMicOn && participantAudioLevels['local']}
 						<div class="absolute top-2 right-2 z-10 flex items-center gap-1">
-							<div 
+							<div
 								class="w-1 h-6 rounded-full transition-all duration-100"
 								class:bg-green-500={getAudioLevel(participantAudioLevels['local']) === 'low'}
 								class:bg-yellow-500={getAudioLevel(participantAudioLevels['local']) === 'medium'}
 								class:bg-red-500={getAudioLevel(participantAudioLevels['local']) === 'high'}
 								style="height: {Math.min(20 + (participantAudioLevels['local'] || 0) / 2, 40)}px"
 							></div>
-							<div 
+							<div
 								class="w-1 h-6 rounded-full transition-all duration-100 opacity-60"
 								class:bg-green-500={getAudioLevel(participantAudioLevels['local']) === 'low'}
 								class:bg-yellow-500={getAudioLevel(participantAudioLevels['local']) === 'medium'}
 								class:bg-red-500={getAudioLevel(participantAudioLevels['local']) === 'high'}
 								style="height: {Math.min(12 + (participantAudioLevels['local'] || 0) / 4, 35)}px"
 							></div>
-							<div 
+							<div
 								class="w-1 h-6 rounded-full transition-all duration-100 opacity-40"
 								class:bg-green-500={getAudioLevel(participantAudioLevels['local']) === 'low'}
 								class:bg-yellow-500={getAudioLevel(participantAudioLevels['local']) === 'medium'}
@@ -438,10 +651,36 @@
 					
 					<div class="absolute bottom-2 left-2 z-10">
 						<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
-							{user?.username || user?.email || 'You'}
+							{user?.username || user?.email || publicUserName || 'You'}
 						</div>
 					</div>
 				</div>
+
+				<!-- Remote participant videos -->
+				{#each peers as peer (peer.id)}
+					<div class="relative rounded-lg overflow-hidden bg-card flex items-center justify-center group">
+						{#if remoteStreams[peer.id]}
+							<video
+								autoplay
+								playsinline
+								class="w-full h-full object-cover"
+								bind:this={remoteVideoElements[peer.id]}
+							/>
+						{:else}
+							<div class="flex items-center justify-center h-full">
+								<div class="relative flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+									<span class="text-lg font-medium">{peer.name}</span>
+								</div>
+							</div>
+						{/if}
+						
+						<div class="absolute bottom-2 left-2 z-10">
+							<div class="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80">
+								{peer.name}
+							</div>
+						</div>
+					</div>
+				{/each}
 			</main>
 		</div>
 
@@ -499,4 +738,14 @@
 			</div>
 		</div>
 	</div>
+{/if}
+
+<!-- Public User Modal -->
+{#if showPublicUserModal}
+	<PublicUserModal
+		bind:isOpen={showPublicUserModal}
+		defaultName={publicUserName}
+		onSubmit={handlePublicUserSubmit}
+		onCancel={() => goto('/dashboard')}
+	/>
 {/if}

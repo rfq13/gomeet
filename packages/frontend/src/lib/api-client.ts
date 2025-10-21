@@ -1,5 +1,15 @@
 // API Client untuk komunikasi dengan backend Golang
-import type { APIResponse, APIError, User, AuthResponse } from "$types";
+import type {
+  APIResponse,
+  APIError,
+  User,
+  AuthResponse,
+  PublicUser,
+  PublicUserResponse,
+  CreatePublicUserRequest,
+  JoinMeetingAsPublicUserRequest,
+  LeaveMeetingAsPublicUserRequest,
+} from "$types";
 
 export class APIException extends Error {
   constructor(public error: APIError) {
@@ -279,6 +289,77 @@ class APIClient {
     } else {
       this.safeRemoveLocalStorageItem("accessToken");
     }
+  }
+
+  // Public User methods
+  async createPublicUser(
+    name: string,
+    sessionId: string
+  ): Promise<PublicUserResponse> {
+    const response = await this.request<{
+      success: boolean;
+      data: PublicUserResponse;
+      message: string;
+    }>("/public-users", {
+      method: "POST",
+      body: JSON.stringify({ name, sessionId } as CreatePublicUserRequest),
+    });
+
+    return response.data;
+  }
+
+  async getPublicUserBySessionId(
+    sessionId: string
+  ): Promise<PublicUserResponse | null> {
+    try {
+      const response = await this.request<{
+        success: boolean;
+        data: PublicUserResponse;
+        message: string;
+      }>(`/public-users/session/${sessionId}`);
+      return response.data;
+    } catch (error) {
+      if (error instanceof APIException && error.error.code === "NOT_FOUND") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async joinMeetingAsPublicUser(
+    sessionId: string,
+    meetingId: string
+  ): Promise<any> {
+    const response = await this.request<{
+      success: boolean;
+      data: any;
+      message: string;
+    }>("/public-users/join-meeting", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId,
+        meetingId,
+      } as JoinMeetingAsPublicUserRequest),
+    });
+
+    return response.data;
+  }
+
+  async leaveMeetingAsPublicUser(
+    sessionId: string,
+    meetingId: string
+  ): Promise<void> {
+    await this.request<{
+      success: boolean;
+      data: any;
+      message: string;
+    }>("/public-users/leave-meeting", {
+      method: "POST",
+      body: JSON.stringify({
+        sessionId,
+        meetingId,
+      } as LeaveMeetingAsPublicUserRequest),
+    });
   }
 }
 

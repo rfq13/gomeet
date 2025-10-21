@@ -13,7 +13,6 @@ type Config struct {
 	CORS     CORSConfig
 	Logging  LoggingConfig
 	Redis    RedisConfig
-	LiveKit  LiveKitConfig
 	TURN     TURNConfig
 }
 
@@ -51,11 +50,6 @@ type RedisConfig struct {
 	Password string
 }
 
-type LiveKitConfig struct {
-	Host      string
-	APIKey    string
-	APISecret string
-}
 
 type TURNConfig struct {
 	Server string
@@ -91,11 +85,6 @@ func Load() *Config {
 			Host:     getEnv("REDIS_HOST", "localhost"),
 			Port:     getEnv("REDIS_PORT", "6379"),
 			Password: getEnv("REDIS_PASSWORD", ""),
-		},
-		LiveKit: LiveKitConfig{
-			Host:      getEnv("LIVEKIT_HOST", "localhost:7880"),
-			APIKey:    getEnv("LIVEKIT_API_KEY", ""),
-			APISecret: getEnv("LIVEKIT_API_SECRET", ""),
 		},
 		TURN: TURNConfig{
 			Server: getEnv("TURN_SERVER", "127.0.0.1"),

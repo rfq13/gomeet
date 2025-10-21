@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -110,9 +111,33 @@ func (s *WebSocketService) HandleWebSocket(ctx *gin.Context) {
 		}
 	}
 
-	// If still no user info, use anonymous
+	// If still no user info, try alternative identification methods
 	if userName == "" {
-		userName = "Anonymous User"
+		log.Printf("[DEBUG] No user name found, trying alternative identification methods")
+		
+		// Try to generate meaningful fallback name based on available identifiers
+		if clientID != "" {
+			// Use client ID to generate a more meaningful name
+			if strings.HasPrefix(clientID, "user_") {
+				userName = fmt.Sprintf("User %s", clientID[5:8]) // Use last 8 chars of user ID
+			} else if strings.HasPrefix(clientID, "public_") {
+				userName = fmt.Sprintf("Guest %s", clientID[7:11]) // Use last 4 chars of public user ID
+			} else if strings.HasPrefix(clientID, "session_") {
+				userName = fmt.Sprintf("Participant %s", clientID[len(clientID)-4:]) // Use last 4 chars
+			} else {
+				userName = fmt.Sprintf("User %s", clientID[len(clientID)-4:]) // Use last 4 chars of client ID
+			}
+			log.Printf("[DEBUG] Generated fallback name from client ID: %s -> %s", clientID, userName)
+		} else if sessionID != "" {
+			// Use session ID to generate a name
+			userName = fmt.Sprintf("Guest %s", sessionID[len(sessionID)-4:]) // Use last 4 chars of session ID
+			log.Printf("[DEBUG] Generated fallback name from session ID: %s -> %s", sessionID, userName)
+		} else {
+			// Last resort: generate a random but meaningful name
+			randomSuffix := uuid.New().String()[:8]
+			userName = fmt.Sprintf("User %s", randomSuffix)
+			log.Printf("[WARNING] Generated random fallback name: %s - no identifiers available", userName)
+		}
 	}
 	
 	// CRITICAL FIX: Use deterministic client ID instead of random UUID

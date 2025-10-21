@@ -6,27 +6,30 @@ services:
     image: postgres:15
     container_name: gomeet-postgres
     environment:
-      POSTGRES_DB: gomeet_db
-      POSTGRES_USER: gomeet
-      POSTGRES_PASSWORD: gomeet_password
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./packages/backend/migrations:/docker-entrypoint-initdb.d
     networks:
       - gomeet-network
+    restart: unless-stopped
 
   # Redis Cache
   redis:
     image: redis:7-alpine
     container_name: gomeet-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     networks:
       - gomeet-network
+    restart: unless-stopped
 
   # Backend API
   backend:
@@ -35,26 +38,40 @@ services:
       dockerfile: packages/backend/Dockerfile
     container_name: gomeet-backend
     environment:
-      PORT: 8080
+      PORT: ${PORT:-8080}
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: gomeet
-      DB_PASSWORD: gomeet_password
-      DB_NAME: gomeet_db
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      JWT_SECRET: your-super-secret-jwt-key-change-this-in-production
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:4173
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      WEBRTC_STUN_SERVER: ${WEBRTC_STUN_URL:-stun:stun.l.google.com:19302}
+      WEBRTC_TURN_SERVER: ${WEBRTC_TURN_URL}
+      WEBRTC_TURN_USERNAME: ${WEBRTC_TURN_USERNAME}
+      WEBRTC_TURN_CREDENTIAL: ${WEBRTC_TURN_CREDENTIAL}
     ports:
-      - "8080:8080"
+      - "${PORT:-8080}:8080"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
     networks:
       - gomeet-network
     volumes:
       - ./packages/backend:/app
     working_dir: /app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # Frontend (SvelteKit)
   frontend:
@@ -63,37 +80,38 @@ services:
       dockerfile: packages/frontend/Dockerfile
     container_name: gomeet-frontend
     environment:
-      PUBLIC_API_URL: http://localhost:8080/api/v1
-      PUBLIC_WS_URL: ws://localhost:8080
-      PUBLIC_APP_NAME: GoMeet
+      PUBLIC_API_URL: ${PUBLIC_API_URL}
+      PUBLIC_WS_URL: ${PUBLIC_WS_URL}
+      PUBLIC_APP_NAME: ${PUBLIC_APP_NAME}
+      PUBLIC_APP_VERSION: ${PUBLIC_APP_VERSION:-1.0.0}
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - gomeet-network
     volumes:
       - ./packages/frontend:/app
     working_dir: /app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  # LiveKit Server untuk video calling
-  livekit:
-    image: livekit/livekit-server:latest
-    container_name: gomeet-livekit
-    command: --dev
-    environment:
-      LIVEKIT_KEYS: your-livekit-api-key:your-livekit-api-secret
-    ports:
-      - "7880:7880"
-      - "7881:7881" # HTTP
-      - "7882:7882" # RTC (UDP/TCP)
-    networks:
-      - gomeet-network
 
 volumes:
   postgres_data:
+    driver: local
   redis_data:
+    driver: local
 
 networks:
   gomeet-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

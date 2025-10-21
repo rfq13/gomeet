@@ -49,20 +49,6 @@ func Setup(db *gorm.DB, cfg config.Config) *gin.Engine {
 	
 	chatService := services.NewChatService(db, websocketService, publicUserService)
 	
-	// TEMPORARILY DISABLED FOR EMERGENCY WEBSOCKET FIX
-	// Initialize LiveKit service
-	// livekitConfig := services.LiveKitConfig{
-	// 	Host:          cfg.LiveKit.Host,
-	// 	APIKey:        cfg.LiveKit.APIKey,
-	// 	APISecret:     cfg.LiveKit.APISecret,
-	// 	RedisAddr:     redisAddr,
-	// 	RedisPassword: cfg.Redis.Password,
-	// }
-	// livekitService, err := services.NewLiveKitService(livekitConfig, redisClient, db)
-	// if err != nil {
-	// 	panic("Failed to initialize LiveKit service: " + err.Error())
-	// }
-	
 	// Initialize feature flag service
 	featureFlagService := services.NewFeatureFlagService(redisClient, db)
 	
@@ -80,7 +66,6 @@ func Setup(db *gorm.DB, cfg config.Config) *gin.Engine {
 	websocketController := controllers.NewWebSocketController(websocketService, db)
 	webrtcController := controllers.NewWebRTCController(webrtcService, db)
 	chatController := controllers.NewChatController(chatService)
-	// livekitController := controllers.NewLiveKitController(livekitService)
 	featureFlagController := controllers.NewFeatureFlagController(featureFlagService)
 	// turnController := controllers.NewTurnController(turnService)
 
@@ -167,19 +152,6 @@ func Setup(db *gorm.DB, cfg config.Config) *gin.Engine {
 			webrtc.GET("/meetings/:id/stats", webrtcController.GetRoomStats)
 		}
 
-		// TEMPORARILY DISABLED FOR EMERGENCY WEBSOCKET FIX
-		// LiveKit routes (protected)
-		// livekit := v1.Group("/livekit")
-		// livekit.Use(authMiddleware.RequireAuth())
-		// {
-		// 	livekit.POST("/rooms/:meetingId/create", livekitController.CreateRoom)
-		// 	livekit.POST("/rooms/:meetingId/join", livekitController.JoinRoom)
-		// 	livekit.POST("/rooms/:meetingId/leave", livekitController.LeaveRoom)
-		// 	livekit.GET("/rooms/:meetingId/participants", livekitController.GetParticipants)
-		// 	livekit.GET("/rooms/:meetingId/status", livekitController.GetRoomStatus)
-		// 	livekit.GET("/rooms/:meetingId/count", livekitController.GetParticipantCount)
-		// 	livekit.DELETE("/rooms/:meetingId", livekitController.DeleteRoom)
-		// }
 
 		// Feature flag routes (protected)
 		featureFlags := v1.Group("/feature-flags")
@@ -194,10 +166,6 @@ func Setup(db *gorm.DB, cfg config.Config) *gin.Engine {
 			featureFlags.GET("/migration/phase", featureFlagController.GetMigrationPhase)
 			featureFlags.POST("/cleanup", featureFlagController.CleanupExpiredFlags)
 			
-			// Meeting-specific LiveKit settings
-			featureFlags.POST("/meetings/livekit/enable", featureFlagController.EnableLiveKitForMeeting)
-			featureFlags.DELETE("/meetings/:meetingId/livekit", featureFlagController.DisableLiveKitForMeeting)
-			featureFlags.GET("/meetings/:meetingId/livekit", featureFlagController.ShouldUseLiveKitForMeeting)
 		}
 
 		// Chat routes (mixed auth - supports both authenticated and public users)
