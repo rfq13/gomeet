@@ -1,0 +1,49 @@
+NAME                                    READY   STATUS              RESTARTS         AGE
+pod/auth-service-86f4c848d-qrm6d        1/1     Running             0                10h
+pod/auth-service-86f4c848d-zw2g5        1/1     Running             0                10h
+pod/chat-service-648fc4997c-fxt8z       1/1     Running             25 (19h ago)     20h
+pod/chat-service-648fc4997c-p2v4f       1/1     Running             0                15h
+pod/frontend-7c8c7c5445-4hnw6           1/1     Running             0                11h
+pod/frontend-7c8c7c5445-rkx6l           1/1     Running             0                11h
+pod/livekit-recorder-657bf998-xhn85     0/1     Pending             0                16h
+pod/livekit-recorder-7896fdc49c-d89b6   0/1     Pending             0                16h
+pod/livekit-sfu-76788bcd68-czd2z        1/1     Running             0                11h
+pod/livekit-sfu-76788bcd68-wp7bx        1/1     Running             0                11h
+pod/meeting-service-75db9f6587-8c7lq    1/1     Running             0                15h
+pod/meeting-service-75db9f6587-pxhwx    1/1     Running             0                19h
+pod/meeting-service-75db9f6587-rlwdk    1/1     Running             0                19h
+pod/signaling-service-6b486f46-2mvpc    1/1     Running             0                18h
+pod/signaling-service-6b486f46-48s2d    1/1     Running             0                15h
+pod/signaling-service-6b486f46-ld7rw    1/1     Running             0                15h
+pod/signaling-service-6b486f46-s4whz    1/1     Running             0                18h
+pod/traefik-5fb5dd6968-c49hs            0/1     ContainerCreating   0                33m
+pod/traefik-5fb5dd6968-swq9v            0/1     ContainerCreating   0                33m
+pod/traefik-5fb5dd6968-xdfxm            0/1     ContainerCreating   0                33m
+pod/traefik-7885f7f648-2rrjq            0/1     CrashLoopBackOff    15 (2m43s ago)   33m
+pod/traefik-7885f7f648-wzb5z            0/1     ContainerCreating   0                33m
+pod/traefik-cc676564d-4j5rq             1/1     Running             0                48m
+pod/traefik-cc676564d-bwrcg             1/1     Running             0                33m
+pod/traefik-cc676564d-kqdsp             1/1     Running             0                48m
+pod/turn-service-587c59f999-fprdf       1/1     Running             0                15h
+pod/turn-service-587c59f999-tnlwg       1/1     Running             0                17h
+
+NAME                          TYPE           CLUSTER-IP       EXTERNAL-IP       PORT(S)                                                    AGE
+service/auth-service          ClusterIP      10.245.210.104   <none>            8080/TCP,9090/TCP                                          24h
+service/chat-service          ClusterIP      10.245.126.71    <none>            8080/TCP,9090/TCP                                          24h
+service/frontend              ClusterIP      10.245.44.21     <none>            5173/TCP                                                   24h
+service/gomeet-ingress-lb     LoadBalancer   10.245.3.58      146.190.196.39    80:31952/TCP,443:30253/TCP,8080:32742/TCP                  11h
+service/gomeet-livekit-lb     LoadBalancer   10.245.67.149    167.172.12.245    7880:31021/TCP,7882:30938/TCP,7883:31706/TCP               11h
+service/gomeet-websocket-lb   LoadBalancer   10.245.214.78    143.244.202.125   8080:31790/TCP                                             11h
+service/livekit-recorder      ClusterIP      10.245.249.117   <none>            8080/TCP,9090/TCP                                          16h
+service/livekit-sfu           ClusterIP      10.245.226.136   <none>            7880/TCP,7881/UDP,7882/TCP,7883/TCP,6789/TCP               16h
+service/livekit-sfu-tcp-lb    LoadBalancer   10.245.164.170   178.128.133.171   7880:31904/TCP,7882:30970/TCP,7883:30339/TCP               16h
+service/livekit-sfu-udp-lb    LoadBalancer   10.245.143.179   206.189.252.199   7881:30100/UDP,10000:31431/UDP,11000:30614/UDP             16h
+service/meeting-service       ClusterIP      10.245.143.73    <none>            8080/TCP,9090/TCP                                          24h
+service/signaling-service     ClusterIP      10.245.244.243   <none>            8080/TCP,8081/TCP,9090/TCP                                 24h
+service/traefik               LoadBalancer   10.245.63.9      146.190.186.45    80:32193/TCP,443:30826/TCP,8080:30854/TCP,8082:31705/TCP   22h
+service/traefik-internal      ClusterIP      10.245.185.13    <none>            80/TCP,443/TCP,8080/TCP,8082/TCP                           22h
+service/turn-service          ClusterIP      10.245.50.102    <none>            8080/TCP,9090/TCP                                          24h
+
+NAME                                               CLASS    HOSTS                                                                ADDRESS   PORTS     AGE
+ingress.networking.k8s.io/acme-challenge-ingress   <none>   meet.filosofine.com,api-meet.filosofine.com,livekit.filosofine.com             80        70m
+ingress.networking.k8s.io/gomeet-ingress-ssl       <none>   meet.filosofine.com,api-meet.filosofine.com,livekit.filosofine.com             80, 443   22m

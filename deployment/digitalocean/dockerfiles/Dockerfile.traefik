@@ -1,0 +1,15 @@
+FROM traefik:v3.0
+LABEL maintainer="GoMeet Team"
+LABEL version="3.0"
+LABEL description="GoMeet Traefik Gateway"
+
+# Copy custom configuration
+COPY traefik.yml /etc/traefik/traefik.yml
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD traefik healthcheck --ping
+
+EXPOSE 80 443 8080 8082
+
+CMD ["traefik"]

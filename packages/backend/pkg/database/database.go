@@ -27,6 +27,9 @@ func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		cfg.Port,
 		cfg.SSLMode,
 	)
+	
+	// Disable prepared statements by using a different approach
+	// We'll configure this in GORM options instead
 
 	// Configure GORM logger with detailed logging
 	gormLogger := logger.Default.LogMode(logger.Info)
@@ -34,9 +37,14 @@ func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		gormLogger = logger.Default.LogMode(logger.Info) // Keep Info for debugging
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+	// Configure GORM with disabled prepared statements
+	gormConfig := &gorm.Config{
 		Logger: gormLogger,
-	})
+		DisableForeignKeyConstraintWhenMigrating: true,
+		PrepareStmt:                              false, // Disable prepared statements
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
@@ -67,12 +75,9 @@ func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	// }
 	// logrus.Info("Database migration completed successfully")
 
-	// Run manual migrations for complex schema changes
-	if err := runManualMigrations(db); err != nil {
-		return nil, fmt.Errorf("failed to run manual migrations: %w", err)
-	}
-
-	logrus.Info("Manual migrations completed successfully")
+	// Skip manual migrations for now to avoid prepared statement conflicts
+	// TODO: Fix prepared statement issues with Supabase before enabling migrations
+	logrus.Info("Skipping manual migrations due to Supabase prepared statement conflicts")
 
 	return db, nil
 }

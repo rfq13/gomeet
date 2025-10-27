@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -22,12 +23,13 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	DBName   string
-	SSLMode  string
+	Host                      string
+	Port                      string
+	User                      string
+	Password                  string
+	DBName                    string
+	SSLMode                   string
+	DisablePreparedStatements bool
 }
 
 type JWTConfig struct {
@@ -63,12 +65,13 @@ func Load() *Config {
 			GinMode: getEnv("GIN_MODE", "debug"),
 		},
 		Database: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "5432"),
-			User:     getEnv("DB_USER", "gomeet"),
-			Password: getEnv("DB_PASSWORD", ""),
-			DBName:   getEnv("DB_NAME", "gomeet_db"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
+			Host:                      getEnv("DB_HOST", "localhost"),
+			Port:                      getEnv("DB_PORT", "5432"),
+			User:                      getEnv("DB_USER", "gomeet"),
+			Password:                  getEnv("DB_PASSWORD", ""),
+			DBName:                    getEnv("DB_NAME", "gomeet_db"),
+			SSLMode:                   getEnv("DB_SSLMODE", "disable"),
+			DisablePreparedStatements: getBoolEnv("DB_DISABLE_PREPARED_STATEMENTS", false),
 		},
 		JWT: JWTConfig{
 			Secret:             getEnv("JWT_SECRET", "your-secret-key"),
@@ -120,6 +123,15 @@ func getStringSliceEnv(key string, defaultValue []string) []string {
 			}
 		}
 		return origins
+	}
+	return defaultValue
+}
+
+func getBoolEnv(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			return parsed
+		}
 	}
 	return defaultValue
 }

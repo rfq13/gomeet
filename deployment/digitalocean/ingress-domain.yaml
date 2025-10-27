@@ -1,0 +1,336 @@
+# Domain-based Ingress Configuration for meet.filosifine.com and api-meet.filosifine.com
+# This configuration runs alongside the existing IP-based configuration
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gomeet-meet-frontend-ingress
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: meet-frontend-ingress
+    provider: digitalocean
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.middlewares: "gomeet-meet-security-headers@kubernetescrd,gomeet-meet-compression@kubernetescrd,gomeet-meet-rate-limit@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.priority: "900"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: "letsencrypt"
+    traefik.ingress.kubernetes.io/router.tls.options: "modern"
+spec:
+  tls:
+    - hosts:
+        - meet.filosofine.com
+      secretName: meet-filosofine-tls
+  rules:
+    # Frontend domain - meet.filosofine.com
+    - host: meet.filosofine.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 5173
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gomeet-api-meet-backend-ingress
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: api-meet-backend-ingress
+    provider: digitalocean
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.middlewares: "gomeet-api-meet-security-headers@kubernetescrd,gomeet-api-meet-cors@kubernetescrd,gomeet-api-meet-rate-limit@kubernetescrd,gomeet-api-meet-circuit-breaker@kubernetescrd,gomeet-api-meet-retry@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.priority: "800"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: "letsencrypt"
+    traefik.ingress.kubernetes.io/router.tls.options: "modern@kubernetescrd"
+spec:
+  tls:
+    - hosts:
+        - api-meet.filosofine.com
+      secretName: api-meet-filosofine-tls
+  rules:
+    # Backend API domain - api-meet.filosofine.com
+    - host: api-meet.filosofine.com
+      http:
+        paths:
+          # Health check endpoint - Highest priority
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8080
+          # API routes
+          - path: /api/v1
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gomeet-api-meet-websocket-ingress
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: api-meet-websocket-ingress
+    provider: digitalocean
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.middlewares: "gomeet-api-meet-websocket-headers@kubernetescrd,gomeet-api-meet-websocket-compression@kubernetescrd,gomeet-api-meet-websocket-rate-limit@kubernetescrd,gomeet-api-meet-websocket-circuit-breaker@kubernetescrd"
+    traefik.ingress.kubernetes.io/router.priority: "850"
+    traefik.ingress.kubernetes.io/router.tls.certresolver: "letsencrypt"
+spec:
+  tls:
+    - hosts:
+        - api-meet.filosofine.com
+      secretName: api-meet-filosofine-tls
+  rules:
+    # WebSocket routes for api-meet.filosofine.com
+    - host: api-meet.filosofine.com
+      http:
+        paths:
+          - path: /api/v1/ws
+            pathType: Prefix
+            backend:
+              service:
+                name: signaling-service
+                port:
+                  number: 8081
+
+---
+# HTTP to HTTPS Redirect Middleware for meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-meet-https-redirect
+  namespace: gomeet
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+
+---
+# HTTP to HTTPS Redirect Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-https-redirect
+  namespace: gomeet
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+
+---
+# Security Headers Middleware for meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-meet-security-headers
+  namespace: gomeet
+spec:
+  headers:
+    frameDeny: true
+    contentTypeNosniff: true
+    browserXssFilter: true
+    referrerPolicy: "strict-origin-when-cross-origin"
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+    customResponseHeaders:
+      X-Content-Type-Options: "nosniff"
+      X-Frame-Options: "DENY"
+      X-XSS-Protection: "1; mode=block"
+      Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+      Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss: https: https://api-meet.filosifine.com; media-src 'self' blob:; frame-src 'self' https://livekit.filosofine.com;"
+
+---
+# Security Headers Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-security-headers
+  namespace: gomeet
+spec:
+  headers:
+    frameDeny: true
+    contentTypeNosniff: true
+    browserXssFilter: true
+    referrerPolicy: "strict-origin-when-cross-origin"
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+    customResponseHeaders:
+      X-Content-Type-Options: "nosniff"
+      X-Frame-Options: "DENY"
+      X-XSS-Protection: "1; mode=block"
+      Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+      Content-Security-Policy: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' wss: https: https://meet.filosifine.com; media-src 'self' blob:;"
+
+---
+# Rate Limiting Middleware for meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-meet-rate-limit
+  namespace: gomeet
+spec:
+  rateLimit:
+    average: 500
+    burst: 1000
+    period: 1m
+
+---
+# Rate Limiting Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-rate-limit
+  namespace: gomeet
+spec:
+  rateLimit:
+    average: 1000
+    burst: 2000
+    period: 1m
+
+---
+# WebSocket Rate Limiting Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-websocket-rate-limit
+  namespace: gomeet
+spec:
+  rateLimit:
+    average: 2000
+    burst: 4000
+    period: 1m
+
+---
+# CORS Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-cors
+  namespace: gomeet
+spec:
+  headers:
+    accessControlAllowCredentials: true
+    accessControlAllowHeaders:
+      - Content-Type
+      - Authorization
+      - X-Requested-With
+    accessControlAllowMethods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+    accessControlAllowOriginList:
+      - "https://meet.filosofine.com"
+      - "https://api-meet.filosofine.com"
+
+---
+# WebSocket Headers Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-websocket-headers
+  namespace: gomeet
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+      X-Forwarded-For: "{{.ClientHost}}"
+    accessControlAllowCredentials: true
+    accessControlAllowHeaders:
+      - "Content-Type"
+      - "Authorization"
+      - "X-Requested-With"
+    accessControlAllowMethods:
+      - "GET"
+      - "POST"
+      - "OPTIONS"
+    accessControlAllowOriginList:
+      - "https://meet.filosofine.com"
+      - "https://api-meet.filosofine.com"
+
+---
+# Compression Middleware for meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-meet-compression
+  namespace: gomeet
+spec:
+  compress:
+    excludedContentTypes:
+      - text/event-stream
+      - application/grpc
+    minResponseBodyBytes: 1024
+
+---
+# WebSocket Compression Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-websocket-compression
+  namespace: gomeet
+spec:
+  compress:
+    excludedContentTypes:
+      - text/event-stream
+      - application/grpc
+    minResponseBodyBytes: 1024
+
+---
+# Circuit Breaker Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-circuit-breaker
+  namespace: gomeet
+spec:
+  circuitBreaker:
+    expression: "NetworkErrorRatio() > 0.2"
+    checkPeriod: 5s
+    fallbackDuration: 10s
+    recoveryDuration: 10s
+
+---
+# WebSocket Circuit Breaker Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-websocket-circuit-breaker
+  namespace: gomeet
+spec:
+  circuitBreaker:
+    expression: "NetworkErrorRatio() > 0.1"
+    checkPeriod: 3s
+    fallbackDuration: 5s
+    recoveryDuration: 5s
+
+
+# Retry Middleware for api-meet.filosofine.com
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gomeet-api-meet-retry
+  namespace: gomeet
+spec:
+  retry:
+    attempts: 3
+    initialInterval: 100ms

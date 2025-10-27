@@ -1,0 +1,88 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gomeet-ingress-temp-ssl
+  namespace: gomeet
+  annotations:
+    kubernetes.io/ingress.class: traefik
+
+spec:
+  tls:
+    - hosts:
+        - meet.filosofine.com
+        - api-meet.filosofine.com
+        - livekit.filosofine.com
+      secretName: cloudflare-origin-cert
+  rules:
+    - host: meet.filosofine.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 5173
+    - host: api-meet.filosofine.com
+      http:
+        paths:
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8080
+          - path: /api/v1/meetings
+            pathType: Prefix
+            backend:
+              service:
+                name: meeting-service
+                port:
+                  number: 8080
+          - path: /api/v1/chat
+            pathType: Prefix
+            backend:
+              service:
+                name: chat-service
+                port:
+                  number: 8080
+          - path: /api/v1/turn
+            pathType: Prefix
+            backend:
+              service:
+                name: turn-service
+                port:
+                  number: 8080
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: signaling-service
+                port:
+                  number: 8080
+          - path: /api/v1/webrtc
+            pathType: Prefix
+            backend:
+              service:
+                name: signaling-service
+                port:
+                  number: 8080
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8080
+    - host: livekit.filosofine.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: livekit-sfu
+                port:
+                  number: 7880

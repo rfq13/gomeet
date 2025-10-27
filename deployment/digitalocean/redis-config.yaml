@@ -1,0 +1,434 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-managed-config
+  namespace: gomeet
+  labels:
+    app: redis
+    component: external-config
+    provider: upstash
+data:
+  redis.conf: |
+    # External Redis Configuration (Upstash)
+    # This configuration is for client-side connection settings only
+
+    # Network
+    bind 0.0.0.0
+    port 6379
+    protected-mode no
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+
+    # External Redis (no cluster mode)
+    cluster-enabled no
+    # cluster-config-file nodes.conf
+    # cluster-node-timeout 5000
+    # cluster-announce-ip ${POD_IP}
+    # cluster-announce-port 6379
+    # cluster-announce-bus-port 16379
+    # cluster-migration-barrier 1
+    # cluster-require-full-coverage no
+
+    # Memory optimization for external Redis
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+    lazyfree-lazy-eviction yes
+    lazyfree-lazy-expire yes
+    lazyfree-lazy-server-del yes
+    replica-lazy-flush yes
+
+    # Persistence (managed by external provider)
+    # save 900 1
+    # save 300 10
+    # save 60 10000
+    # rdbcompression yes
+    # rdbchecksum yes
+    # dbfilename dump.rdb
+    # dir /data
+    # rdb-save-incremental-fsync yes
+    # stop-writes-on-bgsave-error no
+
+    # AOF persistence (managed by external provider)
+    # appendonly yes
+    # appendfilename "appendonly.aof"
+    # appendfsync everysec
+    # no-appendfsync-on-rewrite no
+    # auto-aof-rewrite-percentage 100
+    # auto-aof-rewrite-min-size 64mb
+    # aof-load-truncated yes
+    # aof-use-rdb-preamble yes
+    # aof-rewrite-incremental-fsync yes
+
+    # Performance tuning for high concurrency
+    databases 16
+    hash-max-ziplist-entries 512
+    hash-max-ziplist-value 64
+    list-max-ziplist-size -2
+    list-compress-depth 0
+    set-max-intset-entries 512
+    zset-max-ziplist-entries 128
+    zset-max-ziplist-value 64
+    hll-sparse-max-bytes 3000
+    stream-node-max-bytes 4096
+    stream-node-max-entries 100
+
+    # Client connections for 50,000 concurrent users
+    maxclients 50000
+    tcp-keepalive 300
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit replica 256mb 64mb 60
+    client-output-buffer-limit pubsub 32mb 8mb 60
+    client-query-buffer-limit 1gb
+
+    # Slow log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 1024
+
+    # Latency monitoring
+    latency-monitor-threshold 100
+
+    # Memory usage optimization
+    activedefrag yes
+    active-defrag-ignore-bytes 100mb
+    active-defrag-threshold-lower 10
+    active-defrag-threshold-upper 100
+    active-defrag-cycle-min 1
+    active-defrag-cycle-max 25
+
+    # Security
+    requirepass ${REDIS_PASSWORD}
+    acllog-max-len 128
+
+    # TLS for external Redis
+    tls-port 6380
+    # tls-cert-file /etc/redis/tls/redis.crt
+    # tls-key-file /etc/redis/tls/redis.key
+    # tls-ca-cert-file /etc/redis/tls/ca.crt
+
+    # Logging
+    loglevel notice
+    syslog-enabled yes
+    syslog-ident redis
+
+    # Monitoring
+    notify-keyspace-events "Ex"
+
+    # Replication (DO managed)
+    replica-serve-stale-data yes
+    replica-read-only yes
+    repl-diskless-sync no
+    repl-diskless-sync-delay 5
+    repl-ping-replica-period 10
+    repl-timeout 60
+    repl-disable-tcp-nodelay no
+    repl-backlog-size 1gb
+    repl-backlog-ttl 3600
+    replica-priority 100
+    min-replicas-to-write 1
+    min-replicas-max-lag 10
+
+    # Multi-threading
+    io-threads 4
+    io-threads-do-reads yes
+
+    # jemalloc tuning
+    jemalloc-bg-thread yes
+
+    # TLS (if needed for DO managed Redis)
+    # tls-port 6380
+    # tls-cert-file /etc/redis/tls/redis.crt
+    # tls-key-file /etc/redis/tls/redis.key
+    # tls-ca-cert-file /etc/redis/tls/ca.crt
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-exporter
+  namespace: gomeet
+  labels:
+    app: redis-exporter
+    component: monitoring
+    provider: digitalocean
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: redis-exporter
+  template:
+    metadata:
+      labels:
+        app: redis-exporter
+        component: monitoring
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - redis-exporter
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: redis-exporter
+          image: oliver006/redis_exporter:latest
+          env:
+            - name: REDIS_ADDR
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_REDIS_CONNECTION_STRING
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: REDIS_PASSWORD
+            - name: REDIS_EXPORTER_LOG_FORMAT
+              value: "txt"
+            - name: REDIS_EXPORTER_CHECK_KEYS
+              value: "meeting_*:participants,meeting_*:chat,session_*:websocket"
+            - name: REDIS_EXPORTER_CHECK_SINGLE_KEYS
+              value: "active_meetings,total_participants"
+            - name: REDIS_EXPORTER_SCRIPT
+              value: "/etc/redis-exporter/scripts/custom-metrics.lua"
+            - name: REDIS_EXPORTER_CONNECTION_TIMEOUT
+              value: "15s"
+            - name: REDIS_EXPORTER_WEB_LISTEN_ADDRESS
+              value: ":9121"
+          ports:
+            - containerPort: 9121
+              name: metrics
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9121
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: scripts
+              mountPath: /etc/redis-exporter/scripts
+              readOnly: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: redis-exporter-scripts
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-exporter-scripts
+  namespace: gomeet
+  labels:
+    app: redis-exporter
+    component: monitoring
+    provider: digitalocean
+data:
+  custom-metrics.lua: |
+    -- Custom Lua script for Redis metrics specific to GoMeet
+    local function get_meeting_participants()
+      local participants = 0
+      local cursor = "0"
+      repeat
+        local reply = redis.call('SCAN', cursor, 'MATCH', 'meeting_*:participants', 'COUNT', 100)
+        cursor = reply[1]
+        local keys = reply[2]
+        for i = 1, #keys do
+          local count = redis.call('SCARD', keys[i])
+          participants = participants + count
+        end
+      until cursor == "0"
+      return participants
+    end
+
+    local function get_active_meetings()
+      local count = 0
+      local cursor = "0"
+      repeat
+        local reply = redis.call('SCAN', cursor, 'MATCH', 'meeting_*:active', 'COUNT', 100)
+        cursor = reply[1]
+        local keys = reply[2]
+        for i = 1, #keys do
+          if redis.call('GET', keys[i]) == "true" then
+            count = count + 1
+          end
+        end
+      until cursor == "0"
+      return count
+    end
+
+    local function get_websocket_connections()
+      local connections = 0
+      local cursor = "0"
+      repeat
+        local reply = redis.call('SCAN', cursor, 'MATCH', 'session_*:websocket', 'COUNT', 100)
+        cursor = reply[1]
+        local keys = reply[2]
+        for i = 1, #keys do
+          local ttl = redis.call('TTL', keys[i])
+          if ttl > 0 then
+            connections = connections + 1
+          end
+        end
+      until cursor == "0"
+      return connections
+    end
+
+    local function get_chat_messages_rate()
+      local now = redis.call('TIME')[1]
+      local minute_ago = now - 60
+      local count = 0
+      local cursor = "0"
+      repeat
+        local reply = redis.call('SCAN', cursor, 'MATCH', 'meeting_*:chat', 'COUNT', 100)
+        cursor = reply[1]
+        local keys = reply[2]
+        for i = 1, #keys do
+          local messages = redis.call('ZRANGEBYSCORE', keys[i], minute_ago, now)
+          count = count + #messages
+        end
+      until cursor == "0"
+      return count
+    end
+
+    -- Return metrics in Prometheus format
+    local metrics = {}
+    table.insert(metrics, "# HELP gomeet_meeting_participants_total Total number of participants across all meetings")
+    table.insert(metrics, "# TYPE gomeet_meeting_participants_total gauge")
+    table.insert(metrics, "gomeet_meeting_participants_total " .. get_meeting_participants())
+
+    table.insert(metrics, "# HELP gomeet_active_meetings_total Total number of active meetings")
+    table.insert(metrics, "# TYPE gomeet_active_meetings_total gauge")
+    table.insert(metrics, "gomeet_active_meetings_total " .. get_active_meetings())
+
+    table.insert(metrics, "# HELP gomeet_websocket_connections_total Total number of WebSocket connections")
+    table.insert(metrics, "# TYPE gomeet_websocket_connections_total gauge")
+    table.insert(metrics, "gomeet_websocket_connections_total " .. get_websocket_connections())
+
+    table.insert(metrics, "# HELP gomeet_chat_messages_rate Chat messages per minute")
+    table.insert(metrics, "# TYPE gomeet_chat_messages_rate gauge")
+    table.insert(metrics, "gomeet_chat_messages_rate " .. get_chat_messages_rate())
+
+    return table.concat(metrics, "\n")
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-exporter
+  namespace: gomeet
+  labels:
+    app: redis-exporter
+    component: monitoring
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9121"
+    prometheus.io/path: "/metrics"
+spec:
+  ports:
+    - port: 9121
+      targetPort: 9121
+      name: metrics
+  selector:
+    app: redis-exporter
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-commander
+  namespace: gomeet
+  labels:
+    app: redis-commander
+    component: management
+    provider: digitalocean
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-commander
+  template:
+    metadata:
+      labels:
+        app: redis-commander
+        component: management
+    spec:
+      containers:
+        - name: redis-commander
+          image: rediscommander/redis-commander:latest
+          env:
+            - name: REDIS_HOSTS
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_REDIS_CONNECTION_STRING
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: REDIS_PASSWORD
+            - name: HTTP_USER
+              value: "admin"
+            - name: HTTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
+            - name: PORT
+              value: "8081"
+          ports:
+            - containerPort: 8081
+              name: web
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-commander
+  namespace: gomeet
+  labels:
+    app: redis-commander
+    component: management
+spec:
+  ports:
+    - port: 8081
+      targetPort: 8081
+      name: web
+  selector:
+    app: redis-commander
+  type: ClusterIP

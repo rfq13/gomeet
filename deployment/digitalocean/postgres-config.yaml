@@ -1,0 +1,471 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-managed-config
+  namespace: gomeet
+  labels:
+    app: postgres
+    component: external-config
+    provider: supabase
+data:
+  postgresql.conf: |
+    # External PostgreSQL Configuration (Supabase)
+    # This configuration is for client-side connection settings only
+
+    # Connection settings (client-side)
+    listen_addresses = '*'
+    port = 6543
+    max_connections = 500
+    superuser_reserved_connections = 10
+
+    # Memory settings (client-side for external database)
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    work_mem = 4MB
+    maintenance_work_mem = 64MB
+    huge_pages = off
+    max_parallel_workers_per_gather = 2
+    max_parallel_workers = 8
+    max_parallel_maintenance_workers = 4
+    parallel_tuple_cost = 0.1
+    parallel_setup_cost = 1000.0
+    min_parallel_table_scan_size = 8MB
+    min_parallel_index_scan_size = 8MB
+
+    # WAL settings (DO managed)
+    wal_buffers = 256MB
+    checkpoint_completion_target = 0.95
+    wal_writer_delay = 100ms
+    commit_delay = 1000
+    commit_siblings = 10
+    wal_level = replica
+    max_wal_senders = 20
+    max_replication_slots = 20
+    wal_keep_segments = 64
+    archive_mode = on
+    archive_command = 'cp %p /var/lib/postgresql/archive/%f'
+    max_wal_size = 32GB
+    min_wal_size = 8GB
+    wal_compression = on
+
+    # Query planner
+    random_page_cost = 1.1
+    effective_io_concurrency = 400
+    seq_page_cost = 1.0
+    cpu_tuple_cost = 0.01
+    cpu_index_tuple_cost = 0.005
+    cpu_operator_cost = 0.0025
+    default_statistics_target = 1000
+
+    # Background writer
+    bgwriter_delay = 100ms
+    bgwriter_lru_maxpages = 200
+    bgwriter_lru_multiplier = 4.0
+    bgwriter_flush_after = 512kB
+
+    # Autovacuum
+    autovacuum = on
+    autovacuum_max_workers = 12
+    autovacuum_naptime = 10s
+    autovacuum_vacuum_scale_factor = 0.05
+    autovacuum_analyze_scale_factor = 0.02
+    autovacuum_vacuum_cost_delay = 10ms
+    autovacuum_vacuum_cost_limit = 200
+
+    # Logging
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'pg_log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    log_truncate_on_rotation = on
+    log_rotation_age = 1d
+    log_rotation_size = 100MB
+    log_min_duration_statement = 500
+    log_checkpoints = on
+    log_connections = on
+    log_disconnections = on
+    log_lock_waits = on
+    log_temp_files = 10MB
+    log_autovacuum_min_duration = 0
+
+    # Replication
+    synchronous_commit = remote_write
+    hot_standby = on
+    hot_standby_feedback = on
+    wal_receiver_status_interval = 10s
+    recovery_min_apply_delay = 0
+    max_standby_archive_delay = 30s
+    max_standby_streaming_delay = 30s
+    wal_receiver_create_temp_slot = off
+
+    # Performance
+    checkpoint_timeout = 30min
+    wal_sync_method = fdatasync
+    full_page_writes = on
+
+    # Partitioning
+    partition_pruning = on
+    enable_partitionwise_join = on
+    enable_partitionwise_aggregate = on
+    enable_partition_pruning = on
+
+    # JIT compilation
+    jit = on
+    jit_above_cost = 100000
+    jit_inline_above_cost = 500000
+    jit_optimize_above_cost = 500000
+
+    # Resource management
+    statement_timeout = 300000
+    lock_timeout = 60000
+    idle_in_transaction_session_timeout = 300000
+
+  pg_hba.conf: |
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+    # Local connections
+    local   all             postgres                                peer
+    local   all             all                                     md5
+
+    # IPv4 local connections
+    host    all             all             127.0.0.1/32            md5
+    host    all             all             0.0.0.0/0               md5
+
+    # IPv6 local connections
+    host    all             all             ::1/128                 md5
+
+    # Replication connections
+    host    replication     replicator      0.0.0.0/0               md5
+
+  init-shard.sql: |
+    -- Create shard databases for DigitalOcean Managed PostgreSQL
+    -- Note: In DO managed environment, you may need to create these databases via DO control panel
+
+    -- Create partitioned participants table in each shard
+    \c gomeet_primary;
+    CREATE TABLE IF NOT EXISTS participants (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        meeting_id UUID NOT NULL,
+        user_id UUID,
+        public_user_id UUID,
+        name VARCHAR(255) NOT NULL,
+        avatar_url VARCHAR(500),
+        is_active BOOLEAN DEFAULT true,
+        joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        left_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    ) PARTITION BY HASH (meeting_id);
+
+    -- Create 16 partitions per shard for better distribution
+    CREATE TABLE IF NOT EXISTS participants_0 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+    CREATE TABLE IF NOT EXISTS participants_1 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+    CREATE TABLE IF NOT EXISTS participants_2 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+    CREATE TABLE IF NOT EXISTS participants_3 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+    CREATE TABLE IF NOT EXISTS participants_4 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+    CREATE TABLE IF NOT EXISTS participants_5 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+    CREATE TABLE IF NOT EXISTS participants_6 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+    CREATE TABLE IF NOT EXISTS participants_7 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+    CREATE TABLE IF NOT EXISTS participants_8 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+    CREATE TABLE IF NOT EXISTS participants_9 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+    CREATE TABLE IF NOT EXISTS participants_10 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+    CREATE TABLE IF NOT EXISTS participants_11 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+    CREATE TABLE IF NOT EXISTS participants_12 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+    CREATE TABLE IF NOT EXISTS participants_13 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+    CREATE TABLE IF NOT EXISTS participants_14 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+    CREATE TABLE IF NOT EXISTS participants_15 PARTITION OF participants FOR VALUES WITH (MODULUS 16, REMAINDER 15);
+
+    -- Create indexes
+    CREATE INDEX IF NOT EXISTS idx_participants_meeting_id ON participants (meeting_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_user_id ON participants (user_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_public_user_id ON participants (public_user_id);
+    CREATE INDEX IF NOT EXISTS idx_participants_is_active ON participants (is_active);
+    CREATE INDEX IF NOT EXISTS idx_participants_joined_at ON participants (joined_at);
+    CREATE INDEX IF NOT EXISTS idx_participants_meeting_active ON participants (meeting_id, is_active);
+
+    -- Create meetings table
+    CREATE TABLE IF NOT EXISTS meetings (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(255) NOT NULL,
+        start_time TIMESTAMP WITH TIME ZONE NOT NULL,
+        host_id UUID NOT NULL,
+        is_active BOOLEAN DEFAULT false,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_meetings_host_id ON meetings (host_id);
+    CREATE INDEX IF NOT EXISTS idx_meetings_start_time ON meetings (start_time);
+    CREATE INDEX IF NOT EXISTS idx_meetings_is_active ON meetings (is_active);
+    CREATE INDEX IF NOT EXISTS idx_meetings_active_time ON meetings (is_active, start_time);
+
+    -- Create chat messages table
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        meeting_id UUID NOT NULL,
+        user_id UUID,
+        public_user_id UUID,
+        message_type VARCHAR(50) NOT NULL,
+        content TEXT,
+        reply_to_id UUID,
+        attachment_url VARCHAR(1000),
+        attachment_type VARCHAR(100),
+        attachment_name VARCHAR(255),
+        is_edited BOOLEAN DEFAULT false,
+        edited_at TIMESTAMP WITH TIME ZONE,
+        is_deleted BOOLEAN DEFAULT false,
+        deleted_at TIMESTAMP WITH TIME ZONE,
+        message_status VARCHAR(50) DEFAULT 'sent',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    ) PARTITION BY HASH (meeting_id);
+
+    -- Create partitions for chat messages
+    CREATE TABLE IF NOT EXISTS chat_messages_0 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 0);
+    CREATE TABLE IF NOT EXISTS chat_messages_1 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 1);
+    CREATE TABLE IF NOT EXISTS chat_messages_2 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 2);
+    CREATE TABLE IF NOT EXISTS chat_messages_3 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 3);
+    CREATE TABLE IF NOT EXISTS chat_messages_4 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 4);
+    CREATE TABLE IF NOT EXISTS chat_messages_5 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 5);
+    CREATE TABLE IF NOT EXISTS chat_messages_6 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 6);
+    CREATE TABLE IF NOT EXISTS chat_messages_7 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 7);
+    CREATE TABLE IF NOT EXISTS chat_messages_8 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 8);
+    CREATE TABLE IF NOT EXISTS chat_messages_9 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 9);
+    CREATE TABLE IF NOT EXISTS chat_messages_10 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 10);
+    CREATE TABLE IF NOT EXISTS chat_messages_11 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 11);
+    CREATE TABLE IF NOT EXISTS chat_messages_12 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 12);
+    CREATE TABLE IF NOT EXISTS chat_messages_13 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 13);
+    CREATE TABLE IF NOT EXISTS chat_messages_14 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 14);
+    CREATE TABLE IF NOT EXISTS chat_messages_15 PARTITION OF chat_messages FOR VALUES WITH (MODULUS 16, REMAINDER 15);
+
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_meeting_id ON chat_messages (meeting_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_user_id ON chat_messages (user_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages (created_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_meeting_created ON chat_messages (meeting_id, created_at);
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-exporter
+  namespace: gomeet
+  labels:
+    app: postgres-exporter
+    component: monitoring
+    provider: digitalocean
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: postgres-exporter
+  template:
+    metadata:
+      labels:
+        app: postgres-exporter
+        component: monitoring
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - postgres-exporter
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: postgres-exporter
+          image: prometheuscommunity/postgres-exporter:latest
+          env:
+            - name: DATA_SOURCE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_POSTGRES_CONNECTION_STRING
+            - name: PG_EXPORTER_AUTO_DISCOVER_DATABASES
+              value: "true"
+            - name: PG_EXPORTER_EXCLUDE_DATABASES
+              value: "template0,template1"
+            - name: PG_EXPORTER_CONSTANT_LABELS
+              value: "cluster=gomeet-do-prod,provider=digitalocean"
+          ports:
+            - containerPort: 9187
+              name: metrics
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9187
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: gomeet
+  labels:
+    app: postgres-exporter
+    component: monitoring
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9187"
+    prometheus.io/path: "/metrics"
+spec:
+  ports:
+    - port: 9187
+      targetPort: 9187
+      name: metrics
+  selector:
+    app: postgres-exporter
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer-do
+  namespace: gomeet
+  labels:
+    app: pgbouncer
+    component: connection-pool
+    provider: digitalocean
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: pgbouncer
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+        component: connection-pool
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - pgbouncer
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: pgbouncer
+          image: pgbouncer/pgbouncer:latest
+          env:
+            - name: DATABASES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_POSTGRES_HOST
+            - name: DATABASES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_POSTGRES_PORT
+            - name: DATABASES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_POSTGRES_USER
+            - name: DATABASES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: POSTGRES_PASSWORD
+            - name: DATABASES_DBNAME
+              valueFrom:
+                secretKeyRef:
+                  name: digitalocean-credentials
+                  key: DO_POSTGRES_DBNAME
+            - name: POOL_MODE
+              value: transaction
+            - name: MAX_CLIENT_CONN
+              value: "5000"
+            - name: DEFAULT_POOL_SIZE
+              value: "200"
+            - name: MIN_POOL_SIZE
+              value: "50"
+            - name: RESERVE_POOL_SIZE
+              value: "20"
+            - name: RESERVE_POOL_TIMEOUT
+              value: "5"
+            - name: MAX_DB_CONNECTIONS
+              value: "1000"
+            - name: MAX_USER_CONNECTIONS
+              value: "200"
+            - name: SERVER_RESET_QUERY
+              value: DISCARD ALL
+            - name: SERVER_CHECK_DELAY
+              value: "30"
+            - name: SERVER_CHECK_QUERY
+              value: "select 1"
+            - name: SERVER_LIFETIME
+              value: "3600"
+            - name: SERVER_IDLE_TIMEOUT
+              value: "600"
+            - name: QUERY_TIMEOUT
+              value: "300"
+            - name: IDLE_TRANSACTION_TIMEOUT
+              value: "300"
+          ports:
+            - containerPort: 6432
+              name: pgbouncer
+          resources:
+            requests:
+              cpu: 2000m
+              memory: 4Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
+          livenessProbe:
+            exec:
+              command:
+                - pgbouncer
+                - --show
+                - stats
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - pgbouncer
+                - --show
+                - stats
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: gomeet
+  labels:
+    app: pgbouncer
+    component: connection-pool
+spec:
+  ports:
+    - port: 6432
+      targetPort: 6432
+      name: pgbouncer
+  selector:
+    app: pgbouncer
+  type: ClusterIP

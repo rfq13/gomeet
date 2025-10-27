@@ -1,0 +1,57 @@
+# =============================================================================
+# ACME Challenge Ingress for Let's Encrypt
+# DigitalOcean Kubernetes Cluster
+#
+# This ingress handles ACME challenge requests for Let's Encrypt certificate generation
+# =============================================================================
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: acme-challenge-ingress
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: acme-challenge
+    provider: digitalocean
+    version: v2.0
+  annotations:
+    kubernetes.io/ingress.class: "traefik"
+    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.entrypoints: "web"
+spec:
+  rules:
+    # ACME Challenge for meet.filosofine.com
+    - host: meet.filosofine.com
+      http:
+        paths:
+          - path: /.well-known/acme-challenge
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik-internal
+                port:
+                  number: 80
+    # ACME Challenge for api-meet.filosofine.com
+    - host: api-meet.filosofine.com
+      http:
+        paths:
+          - path: /.well-known/acme-challenge
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik-internal
+                port:
+                  number: 80
+    # ACME Challenge for livekit.filosofine.com
+    - host: livekit.filosofine.com
+      http:
+        paths:
+          - path: /.well-known/acme-challenge
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik-internal
+                port:
+                  number: 80

@@ -1,0 +1,683 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gomeet-deny-all
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gomeet-allow-same-namespace
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gomeet-allow-kube-system
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gomeet-allow-external-dns
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gomeet-allow-external-https
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gomeet-allow-digitalocean-services
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 6379 # Redis
+        - protocol: TCP
+          port: 25061 # DigitalOcean PostgreSQL additional port
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: auth-service-netpol
+  namespace: gomeet
+  labels:
+    app: auth-service
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: auth-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080 # HTTP
+        - protocol: TCP
+          port: 9090 # Metrics
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 6379 # Redis
+        - protocol: TCP
+          port: 6432 # PgBouncer
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: meeting-service-netpol
+  namespace: gomeet
+  labels:
+    app: meeting-service
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: meeting-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080 # HTTP
+        - protocol: TCP
+          port: 9090 # Metrics
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 6379 # Redis
+        - protocol: TCP
+          port: 6432 # PgBouncer
+        - protocol: TCP
+          port: 7880 # LiveKit
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: signaling-service-netpol
+  namespace: gomeet
+  labels:
+    app: signaling-service
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: signaling-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080 # HTTP
+        - protocol: TCP
+          port: 8081 # WebSocket
+        - protocol: TCP
+          port: 9090 # Metrics
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 6379 # Redis
+        - protocol: TCP
+          port: 6432 # PgBouncer
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: chat-service-netpol
+  namespace: gomeet
+  labels:
+    app: chat-service
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: chat-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080 # HTTP
+        - protocol: TCP
+          port: 9090 # Metrics
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 6379 # Redis
+        - protocol: TCP
+          port: 6432 # PgBouncer
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: turn-service-netpol
+  namespace: gomeet
+  labels:
+    app: turn-service
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: turn-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080 # HTTP
+        - protocol: TCP
+          port: 9090 # Metrics
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 6379 # Redis
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 3478 # TURN
+        - protocol: TCP
+          port: 3478 # TURN
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: livekit-sfu-netpol
+  namespace: gomeet
+  labels:
+    app: livekit-sfu
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: livekit-sfu
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 7880 # HTTP
+        - protocol: UDP
+          port: 7881 # RTC UDP
+        - protocol: TCP
+          port: 7882 # RTC TCP
+        - protocol: TCP
+          port: 7883 # RTC TLS
+        - protocol: TCP
+          port: 6789 # Metrics
+        - from: [] # Allow external WebRTC traffic
+          ports:
+        - protocol: UDP
+          port: 10000-11000 # WebRTC port range
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 6379 # Redis
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 3478 # TURN
+        - protocol: TCP
+          port: 3478 # TURN
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traefik-netpol
+  namespace: gomeet
+  labels:
+    app: traefik
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: traefik
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from: [] # Allow external traffic
+      ports:
+        - protocol: TCP
+          port: 80 # HTTP
+        - protocol: TCP
+          port: 443 # HTTPS
+        - protocol: TCP
+          port: 8080 # WebSocket
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 8080 # Backend services
+        - protocol: TCP
+          port: 7880 # LiveKit
+        - protocol: TCP
+          port: 3000 # Frontend
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-netpol
+  namespace: gomeet
+  labels:
+    app: frontend
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000 # HTTP
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 8080 # API services
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-netpol
+  namespace: gomeet
+  labels:
+    app: monitoring
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      component: monitoring
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+      ports:
+        - protocol: TCP
+          port: 3000 # Grafana
+        - protocol: TCP
+          port: 9090 # Prometheus
+        - protocol: TCP
+          port: 9093 # Alertmanager
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 8080 # Backend services metrics
+        - protocol: TCP
+          port: 9090 # Backend services metrics
+        - protocol: TCP
+          port: 6789 # LiveKit metrics
+        - protocol: TCP
+          port: 9187 # PostgreSQL exporter
+        - protocol: TCP
+          port: 9121 # Redis exporter
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443 # External HTTPS
+        - protocol: TCP
+          port: 53 # DNS
+        - protocol: UDP
+          port: 53 # DNS
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pgbouncer-netpol
+  namespace: gomeet
+  labels:
+    app: pgbouncer
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: pgbouncer
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+      ports:
+        - protocol: TCP
+          port: 6432 # PgBouncer
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 25061 # DigitalOcean PostgreSQL additional port
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-exporter-netpol
+  namespace: gomeet
+  labels:
+    app: redis-exporter
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: redis-exporter
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+              component: monitoring
+      ports:
+        - protocol: TCP
+          port: 9121 # Redis exporter metrics
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 6379 # Redis
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-exporter-netpol
+  namespace: gomeet
+  labels:
+    app: postgres-exporter
+    component: network-policy
+    provider: digitalocean
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres-exporter
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+              component: monitoring
+      ports:
+        - protocol: TCP
+          port: 9187 # PostgreSQL exporter metrics
+  egress:
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5432 # PostgreSQL
+        - protocol: TCP
+          port: 25061 # DigitalOcean PostgreSQL additional port

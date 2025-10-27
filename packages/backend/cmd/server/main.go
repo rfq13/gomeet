@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
+	"gorm.io/gorm"
 
 	_ "github.com/your-org/gomeet/packages/backend/docs" // This line is important for swag to find the docs!
 	"github.com/your-org/gomeet/packages/backend/internal/config"
@@ -42,15 +43,24 @@ func main() {
 	// Initialize configuration
 	cfg := config.Load()
 
-	// Initialize database
-	db, err := database.Initialize(cfg.Database)
-	if err != nil {
-		log.Fatal("Failed to initialize database:", err)
-	}
+	// Initialize database only for services that need it
+	serviceType := os.Getenv("SERVICE_TYPE")
+	var db *gorm.DB
+	if serviceType != "turn" && serviceType != "signaling" {
+		databaseInstance, err := database.Initialize(cfg.Database)
+		if err != nil {
+			log.Fatal("Failed to initialize database:", err)
+		}
+		db = databaseInstance
 
-	// Create database indexes for better performance
-	if err := database.CreateIndexes(db); err != nil {
-		log.Println("Warning: Failed to create database indexes:", err)
+		// Create database indexes for better performance
+		if err := database.CreateIndexes(databaseInstance); err != nil {
+			log.Println("Warning: Failed to create database indexes:", err)
+		}
+		log.Printf("📊 Database: %s:%s/%s", cfg.Database.Host, cfg.Database.Port, cfg.Database.DBName)
+	} else {
+		log.Printf("🔄 Skipping database initialization for %s service", serviceType)
+		db = nil
 	}
 
 	// Set Gin mode

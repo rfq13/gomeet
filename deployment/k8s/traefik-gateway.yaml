@@ -1,0 +1,773 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: gomeet
+data:
+  traefik.yml: |
+    api:
+      dashboard: true
+      insecure: false
+      debug: false
+      
+    entryPoints:
+      web:
+        address: ":80"
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+          middlewares:
+            - security-headers@file
+            
+      websecure:
+        address: ":443"
+        http:
+          middlewares:
+            - security-headers@file
+            - rate-limit@file
+          tls:
+            options: modern@file
+            certResolver: letsencrypt
+            
+      websocket:
+        address: ":8080"
+        http:
+          middlewares:
+            - websocket-headers@file
+            - websocket-compression@file
+            
+      metrics:
+        address: ":8082"
+        
+    providers:
+      kubernetesCRD:
+        namespaces:
+          - gomeet
+        ingressClass: traefik
+        
+      kubernetesIngress:
+        namespaces:
+          - gomeet
+        ingressClass: traefik
+        
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
+        
+    certificatesResolvers:
+      letsencrypt:
+        acme:
+          email: admin@filosofine.com
+          storage: /etc/traefik/acme/acme.json
+          tlsChallenge: {}
+          httpChallenge:
+            entryPoint: web
+            
+    log:
+      level: INFO
+      format: json
+      filePath: /var/log/traefik/traefik.log
+      
+    accessLog:
+      filePath: /var/log/traefik/access.log
+      format: json
+      bufferingSize: 1000
+      fields:
+        defaultMode: keep
+        names:
+          ClientUsername: drop
+        headers:
+          defaultMode: keep
+          names:
+            User-Agent: keep
+            Authorization: drop
+            Content-Type: keep
+            
+    metrics:
+      prometheus:
+        addEntryPointsLabels: true
+        addServicesLabels: true
+        manualRouting: true
+        
+    tracing:
+      jaeger:
+        samplingServerURL: http://jaeger:14268/api/sampling
+        localAgentHostPort: jaeger:6831
+        
+    ping:
+      entryPoint: web
+      
+    pilot:
+      token: ""
+      
+    global:
+      checknewversion: false
+      sendanonymoususage: false
+
+  dynamic-config.yaml: |
+    http:
+      middlewares:
+        security-headers:
+          headers:
+            frameDeny: true
+            contentTypeNosniff: true
+            browserXssFilter: true
+            referrerPolicy: "strict-origin-when-cross-origin"
+            customRequestHeaders:
+              X-Forwarded-Proto: "https"
+            customResponseHeaders:
+              X-Content-Type-Options: "nosniff"
+              X-Frame-Options: "DENY"
+              X-XSS-Protection: "1; mode=block"
+              Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+              Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss: https:; media-src 'self' blob:;"
+              
+        rate-limit:
+          rateLimit:
+            average: 1000
+            burst: 2000
+            period: 1m
+            
+        websocket-headers:
+          headers:
+            customRequestHeaders:
+              X-Forwarded-Proto: "https"
+              X-Forwarded-For: "{{.ClientHost}}"
+            accessControlAllowCredentials: "true"
+            accessControlAllowHeaders: "Content-Type, Authorization, X-Requested-With"
+            accessControlAllowMethods: "GET, POST, OPTIONS"
+            accessControlAllowOriginList: "https://gomeet.com,https://api.gomeet.com,https://app.gomeet.com"
+            
+        api-ratelimit:
+          rateLimit:
+            average: 500
+            burst: 1000
+            period: 1m
+            
+        websocket-ratelimit:
+          rateLimit:
+            average: 2000
+            burst: 4000
+            period: 1m
+            
+        compression:
+          compress:
+            excludedContentTypes:
+              - text/event-stream
+              - application/grpc
+            minResponseBodyBytes: 1024
+            
+        api-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.2" 
+            checkPeriod: 5s
+            fallbackDuration: 10s
+            recoveryDuration: 10s
+            
+        websocket-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.1"
+            checkPeriod: 3s
+            fallbackDuration: 5s
+            recoveryDuration: 5s
+            
+        livekit-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.15"
+            checkPeriod: 2s
+            fallbackDuration: 3s
+            recoveryDuration: 3s
+            
+        retry:
+          retry:
+            attempts: 3
+            initialInterval: 100ms
+            
+        timeout:
+          timeout:
+            request: 30s
+            readTimeout: 30s
+            writeTimeout: 30s
+            idleTimeout: 60s
+            
+        websocket-timeout:
+          timeout:
+            request: 300s
+            readTimeout: 300s
+            writeTimeout: 300s
+            idleTimeout: 600s
+            
+        in-flight-req:
+          inFlightReq:
+            amount: 1000
+            sourceCriterion:
+              requestHeaderName: "X-Request-ID"
+              
+        websocket-in-flight-req:
+          inFlightReq:
+            amount: 5000
+            sourceCriterion:
+              requestHeaderName: "X-Request-ID"
+            
+    tls:
+      options:
+        modern:
+          minVersion: "VersionTLS12"
+          cipherSuites:
+            - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+            - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+            - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
+            - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+            - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+            - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+          sniStrict: true
+          curvePreferences:
+            - "CurveP521"
+            - "CurveP384"
+            - "CurveP256"
+            
+      stores:
+        default:
+          defaultCertificate:
+            certFile: /etc/traefik/certs/default.crt
+            keyFile: /etc/traefik/certs/default.key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: gomeet
+  labels:
+    app: traefik
+    component: gateway
+spec:
+  replicas: 6
+  selector:
+    matchLabels:
+      app: traefik
+  template:
+    metadata:
+      labels:
+        app: traefik
+        component: gateway
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - traefik
+                topologyKey: kubernetes.io/hostname
+      serviceAccountName: traefik
+      containers:
+        - name: traefik
+          image: traefik:v3.0
+          args:
+            - --configfile=/etc/traefik/traefik.yml
+            - --providers.kubernetescrd
+            - --providers.kubernetesingress
+            - --entrypoints.web.address=:80
+            - --entrypoints.websecure.address=:443
+            - --entrypoints.websocket.address=:8080
+            - --entrypoints.metrics.address=:8082
+            - --api.dashboard=true
+            - --api.insecure=false
+            - --metrics.prometheus=true
+            - --metrics.prometheus.addEntryPointsLabels=true
+            - --metrics.prometheus.addServicesLabels=true
+            - --accesslog=true
+            - --accesslog.filepath=/var/log/traefik/access.log
+            - --log.level=INFO
+            - --log.format=json
+            - --global.checknewversion=false
+            - --global.sendanonymoususage=false
+            - --serversTransport.maxIdleConnsPerHost=1000
+            - --serversTransport.forwardingTimeouts.dialTimeout=30s
+            - --serversTransport.forwardingTimeouts.responseHeaderTimeout=30s
+            - --serversTransport.forwardingTimeouts.idleConnTimeout=90s
+            - --entrypoints.web.transport.respondingTimeouts.readTimeout=30s
+            - --entrypoints.web.transport.respondingTimeouts.writeTimeout=30s
+            - --entrypoints.web.transport.respondingTimeouts.idleTimeout=60s
+            - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=30s
+            - --entrypoints.websecure.transport.respondingTimeouts.writeTimeout=30s
+            - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=60s
+            - --entrypoints.websocket.transport.respondingTimeouts.readTimeout=300s
+            - --entrypoints.websocket.transport.respondingTimeouts.writeTimeout=300s
+            - --entrypoints.websocket.transport.respondingTimeouts.idleTimeout=600s
+          ports:
+            - name: web
+              containerPort: 80
+              protocol: TCP
+            - name: websecure
+              containerPort: 443
+              protocol: TCP
+            - name: websocket
+              containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 8082
+              protocol: TCP
+            - name: dashboard
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            requests:
+              cpu: 4000m
+              memory: 8Gi
+            limits:
+              cpu: 8000m
+              memory: 16Gi
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: web
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: web
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/traefik
+            - name: dynamic-config
+              mountPath: /etc/traefik/dynamic
+            - name: acme
+              mountPath: /etc/traefik/acme
+            - name: certs
+              mountPath: /etc/traefik/certs
+            - name: logs
+              mountPath: /var/log/traefik
+          securityContext:
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+            runAsUser: 0
+            runAsGroup: 0
+      volumes:
+        - name: config
+          configMap:
+            name: traefik-config
+        - name: dynamic-config
+          configMap:
+            name: traefik-config
+        - name: acme
+          persistentVolumeClaim:
+            claimName: traefik-acme
+        - name: certs
+          secret:
+            secretName: traefik-tls-certs
+            optional: true
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik
+  namespace: gomeet
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: traefik
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+  - apiGroups: ["traefik.io"]
+    resources:
+      [
+        "middlewares",
+        "middlewaretcps",
+        "ingressroutes",
+        "traefikservices",
+        "ingressrouteudps",
+        "tlsoptions",
+        "tlsstores",
+        "serverstransports",
+      ]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: traefik
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: traefik
+subjects:
+  - kind: ServiceAccount
+    name: traefik
+    namespace: gomeet
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik
+  namespace: gomeet
+  labels:
+    app: traefik
+    component: gateway
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8082"
+    prometheus.io/path: "/metrics"
+    service.beta.kubernetes.io/do-loadbalancer-enable-proxy-protocol: "true"
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - name: web
+      port: 80
+      targetPort: web
+      protocol: TCP
+    - name: websecure
+      port: 443
+      targetPort: websecure
+      protocol: TCP
+    - name: websocket
+      port: 8080
+      targetPort: websocket
+      protocol: TCP
+    - name: metrics
+      port: 8082
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: traefik
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-internal
+  namespace: gomeet
+  labels:
+    app: traefik
+    component: gateway
+spec:
+  type: ClusterIP
+  ports:
+    - name: web
+      port: 80
+      targetPort: web
+    - name: websecure
+      port: 443
+      targetPort: websecure
+    - name: websocket
+      port: 8080
+      targetPort: websocket
+    - name: metrics
+      port: 8082
+      targetPort: metrics
+  selector:
+    app: traefik
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: traefik-acme
+  namespace: gomeet
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+  storageClassName: do-block-storage
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-auth
+  namespace: gomeet
+spec:
+  basicAuth:
+    secret: traefik-basic-auth
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: websocket-compression
+  namespace: gomeet
+spec:
+  compress:
+    excludedContentTypes:
+      - text/event-stream
+    minResponseBodyBytes: 1024
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: api-circuit-breaker
+  namespace: gomeet
+spec:
+  circuitBreaker:
+    expression: "NetworkErrorRatio() > 0.2"
+    checkPeriod: 5s
+    fallbackDuration: 10s
+    recoveryDuration: 10s
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: websocket-circuit-breaker
+  namespace: gomeet
+spec:
+  circuitBreaker:
+    expression: "NetworkErrorRatio() > 0.1"
+    checkPeriod: 3s
+    fallbackDuration: 5s
+    recoveryDuration: 5s
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: livekit-circuit-breaker
+  namespace: gomeet
+spec:
+  circuitBreaker:
+    expression: "NetworkErrorRatio() > 0.15"
+    checkPeriod: 2s
+    fallbackDuration: 3s
+    recoveryDuration: 3s
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: gomeet
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`traefik.gomeet.com`)
+      kind: Rule
+      services:
+        - name: traefik-internal
+          port: 8080
+      middlewares:
+        - name: api-auth
+          namespace: gomeet
+  tls:
+    certResolver: letsencrypt
+    options: modern
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-gateway
+  namespace: gomeet
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api.gomeet.com`) && PathPrefix(`/api/v1/auth`)
+      kind: Rule
+      services:
+        - name: auth-service
+          port: 8080
+      middlewares:
+        - name: security-headers
+          namespace: gomeet
+        - name: api-ratelimit
+          namespace: gomeet
+        - name: api-circuit-breaker
+          namespace: gomeet
+        - name: timeout
+          namespace: gomeet
+        - name: retry
+          namespace: gomeet
+    - match: Host(`api.gomeet.com`) && PathPrefix(`/api/v1/meetings`)
+      kind: Rule
+      services:
+        - name: meeting-service
+          port: 8080
+      middlewares:
+        - name: security-headers
+          namespace: gomeet
+        - name: api-ratelimit
+          namespace: gomeet
+        - name: api-circuit-breaker
+          namespace: gomeet
+        - name: timeout
+          namespace: gomeet
+        - name: retry
+          namespace: gomeet
+    - match: Host(`api.gomeet.com`) && PathPrefix(`/api/v1/chat`)
+      kind: Rule
+      services:
+        - name: chat-service
+          port: 8080
+      middlewares:
+        - name: security-headers
+          namespace: gomeet
+        - name: api-ratelimit
+          namespace: gomeet
+        - name: api-circuit-breaker
+          namespace: gomeet
+        - name: timeout
+          namespace: gomeet
+        - name: retry
+          namespace: gomeet
+    - match: Host(`api.gomeet.com`) && PathPrefix(`/api/v1/turn`)
+      kind: Rule
+      services:
+        - name: turn-service
+          port: 8080
+      middlewares:
+        - name: security-headers
+          namespace: gomeet
+        - name: api-ratelimit
+          namespace: gomeet
+        - name: api-circuit-breaker
+          namespace: gomeet
+        - name: timeout
+          namespace: gomeet
+        - name: retry
+          namespace: gomeet
+  tls:
+    certResolver: letsencrypt
+    options: modern
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: websocket-gateway
+  namespace: gomeet
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api.gomeet.com`) && PathPrefix(`/api/v1/ws`)
+      kind: Rule
+      services:
+        - name: signaling-service
+          port: 8081
+      middlewares:
+        - name: websocket-headers
+          namespace: gomeet
+        - name: websocket-ratelimit
+          namespace: gomeet
+        - name: websocket-circuit-breaker
+          namespace: gomeet
+        - name: websocket-compression
+          namespace: gomeet
+        - name: websocket-timeout
+          namespace: gomeet
+        - name: websocket-in-flight-req
+          namespace: gomeet
+  tls:
+    certResolver: letsencrypt
+    options: modern
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: livekit-gateway
+  namespace: gomeet
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`livekit.gomeet.com`)
+      kind: Rule
+      services:
+        - name: livekit-sfu
+          port: 7880
+      middlewares:
+        - name: livekit-circuit-breaker
+          namespace: gomeet
+        - name: timeout
+          namespace: gomeet
+  tls:
+    certResolver: letsencrypt
+    options: modern
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: traefik-hpa
+  namespace: gomeet
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: traefik
+  minReplicas: 6
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Pods
+      pods:
+        metric:
+          name: traefik_service_requests_total
+        target:
+          type: AverageValue
+          averageValue: "10000"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 3
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min

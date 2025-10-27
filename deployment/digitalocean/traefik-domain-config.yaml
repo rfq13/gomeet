@@ -1,0 +1,423 @@
+# Traefik Domain Configuration for meet.filosifine.com and api-meet.filosifine.com
+# This configuration extends the existing Traefik setup with domain-specific settings
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: meet-filosifine-frontend-route
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: meet-frontend-route
+    provider: digitalocean
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`meet.filosofine.com`)
+      kind: Rule
+      services:
+        - name: frontend
+          port: 5173
+      middlewares:
+        - name: gomeet-meet-security-headers
+          namespace: gomeet
+        - name: gomeet-meet-compression
+          namespace: gomeet
+        - name: gomeet-meet-rate-limit
+          namespace: gomeet
+  tls:
+    certResolver: letsencrypt
+    options:
+      name: modern
+    domains:
+      - main: meet.filosofine.com
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-meet-filosifine-backend-route
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: api-meet-backend-route
+    provider: digitalocean
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api-meet.filosofine.com`) && PathPrefix(`/health`)
+      kind: Rule
+      services:
+        - name: auth-service
+          port: 8080
+      middlewares:
+        - name: gomeet-api-meet-security-headers
+          namespace: gomeet
+        - name: gomeet-api-meet-cors
+          namespace: gomeet
+        - name: gomeet-api-meet-rate-limit
+          namespace: gomeet
+        - name: gomeet-api-meet-circuit-breaker
+          namespace: gomeet
+        - name: gomeet-api-meet-timeout
+          namespace: gomeet
+        - name: gomeet-api-meet-retry
+          namespace: gomeet
+      priority: 1000
+    - match: Host(`api-meet.filosofine.com`) && PathPrefix(`/api/v1`)
+      kind: Rule
+      services:
+        - name: auth-service
+          port: 8080
+      middlewares:
+        - name: gomeet-api-meet-security-headers
+          namespace: gomeet
+        - name: gomeet-api-meet-cors
+          namespace: gomeet
+        - name: gomeet-api-meet-rate-limit
+          namespace: gomeet
+        - name: gomeet-api-meet-circuit-breaker
+          namespace: gomeet
+        - name: gomeet-api-meet-timeout
+          namespace: gomeet
+        - name: gomeet-api-meet-retry
+          namespace: gomeet
+      priority: 900
+  tls:
+    certResolver: letsencrypt
+    options:
+      name: modern
+    domains:
+      - main: api-meet.filosofine.com
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-meet-filosifine-websocket-route
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: api-meet-websocket-route
+    provider: digitalocean
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`api-meet.filosofine.com`) && PathPrefix(`/api/v1/ws`)
+      kind: Rule
+      services:
+        - name: signaling-service
+          port: 8081
+      middlewares:
+        - name: gomeet-api-meet-websocket-headers
+          namespace: gomeet
+        - name: gomeet-api-meet-websocket-compression
+          namespace: gomeet
+        - name: gomeet-api-meet-websocket-rate-limit
+          namespace: gomeet
+        - name: gomeet-api-meet-websocket-circuit-breaker
+          namespace: gomeet
+        - name: gomeet-api-meet-websocket-timeout
+          namespace: gomeet
+      priority: 950
+  tls:
+    certResolver: letsencrypt
+    options:
+      name: modern
+    domains:
+      - main: api-meet.filosofine.com
+
+---
+# HTTP to HTTPS Redirect Routes
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: meet-filosifine-redirect-route
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: meet-redirect-route
+    provider: digitalocean
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`meet.filosofine.com`)
+      kind: Rule
+      services:
+        - name: frontend
+          port: 5173
+      middlewares:
+        - name: gomeet-meet-https-redirect
+          namespace: gomeet
+
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: api-meet-filosifine-redirect-route
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: api-meet-redirect-route
+    provider: digitalocean
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`api-meet.filosofine.com`)
+      kind: Rule
+      services:
+        - name: auth-service
+          port: 8080
+      middlewares:
+        - name: gomeet-api-meet-https-redirect
+          namespace: gomeet
+
+---
+# TLS Options for Enhanced Security
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: filosifine-modern
+  namespace: gomeet
+spec:
+  minVersion: "VersionTLS12"
+  cipherSuites:
+    - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+    - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+    - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
+    - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+    - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+    - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+  sniStrict: true
+  curvePreferences:
+    - "CurveP521"
+    - "CurveP384"
+    - "CurveP256"
+
+---
+# TLS Store for Certificate Management
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: filosifine-default
+  namespace: gomeet
+spec:
+  defaultCertificate:
+    secretName: traefik-default-cert
+
+---
+# Enhanced Certificate Resolver Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-domain-config
+  namespace: gomeet
+  labels:
+    app: traefik
+    component: domain-config
+    provider: digitalocean
+data:
+  domain-config.yaml: |
+    # Enhanced ACME configuration for filosifine.com domains
+    certificatesResolvers:
+      filosifine:
+        acme:
+          email: admin@filosofine.com
+          storage: /etc/traefik/acme/filosifine-acme.json
+          tlsChallenge: {}
+          httpChallenge:
+            entryPoint: web
+          dnsChallenge:
+            provider: digitalocean
+            delayBeforeCheck: 30
+            resolvers:
+              - "8.8.8.8:53"
+              - "1.1.1.1:53"
+          certificates:
+            - certFile: /etc/traefik/certs/meet.filosifine.com.crt
+              keyFile: /etc/traefik/certs/meet.filosifine.com.key
+              stores:
+                - filosifine-default
+            - certFile: /etc/traefik/certs/api-meet.filosifine.com.crt
+              keyFile: /etc/traefik/certs/api-meet.filosifine.com.key
+              stores:
+                - filosifine-default
+
+    # Enhanced entryPoints for domain-specific routing
+    entryPoints:
+      web:
+        address: ":80"
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+              priority: 1
+          middlewares:
+            - security-headers@file
+            
+      websecure:
+        address: ":443"
+        http:
+          middlewares:
+            - security-headers@file
+            - rate-limit@file
+          tls:
+            options: filosifine-modern@file
+            certResolver: filosifine
+            domains:
+              - main: meet.filosifine.com
+              - sans: ["www.meet.filosifine.com"]
+              - main: api-meet.filosifine.com
+              - sans: ["www.api-meet.filosifine.com"]
+              
+      websocket:
+        address: ":8080"
+        http:
+          middlewares:
+            - websocket-headers@file
+            - websocket-compression@file
+          tls:
+            options: filosifine-modern@file
+            certResolver: filosifine
+
+    # Enhanced middleware configuration
+    http:
+      middlewares:
+        filosifine-security-headers:
+          headers:
+            frameDeny: true
+            contentTypeNosniff: true
+            browserXssFilter: true
+            referrerPolicy: "strict-origin-when-cross-origin"
+            customRequestHeaders:
+              X-Forwarded-Proto: "https"
+              X-Forwarded-Host: "filosifine.com"
+            customResponseHeaders:
+              X-Content-Type-Options: "nosniff"
+              X-Frame-Options: "DENY"
+              X-XSS-Protection: "1; mode=block"
+              Strict-Transport-Security: "max-age=31536000; includeSubDomains; preload"
+              Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss: https: https://meet.filosifine.com https://api-meet.filosifine.com; media-src 'self' blob:; frame-src 'self' https://livekit.filosofine.com;"
+              Permissions-Policy: "camera=self, microphone=self, geolocation=(), payment=()"
+              
+        filosifine-cors:
+          headers:
+            accessControlAllowCredentials: true
+            accessControlAllowHeaders:
+              - Content-Type
+              - Authorization
+              - X-Requested-With
+              - X-Forwarded-For
+              - X-Real-IP
+            accessControlAllowMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+              - PATCH
+            accessControlAllowOriginList:
+              - "https://meet.filosifine.com"
+              - "https://api-meet.filosifine.com"
+              - "https://www.meet.filosifine.com"
+              - "https://www.api-meet.filosifine.com"
+            accessControlMaxAge: 86400
+            
+        filosifine-websocket-headers:
+          headers:
+            customRequestHeaders:
+              X-Forwarded-Proto: "https"
+              X-Forwarded-For: "{{.ClientHost}}"
+              X-Forwarded-Host: "api-meet.filosifine.com"
+              Connection: "Upgrade"
+              Upgrade: "websocket"
+            accessControlAllowCredentials: true
+            accessControlAllowHeaders:
+              - "Content-Type"
+              - "Authorization"
+              - "X-Requested-With"
+              - "Sec-WebSocket-Key"
+              - "Sec-WebSocket-Version"
+              - "Sec-WebSocket-Protocol"
+            accessControlAllowMethods:
+              - "GET"
+              - "POST"
+              - "OPTIONS"
+            accessControlAllowOriginList:
+              - "https://meet.filosifine.com"
+              - "https://api-meet.filosifine.com"
+              - "https://www.meet.filosifine.com"
+              - "https://www.api-meet.filosifine.com"
+              
+        filosifine-rate-limit:
+          rateLimit:
+            average: 1000
+            burst: 2000
+            period: 1m
+            
+        filosifine-websocket-rate-limit:
+          rateLimit:
+            average: 2000
+            burst: 4000
+            period: 1m
+            
+        filosifine-compression:
+          compress:
+            excludedContentTypes:
+              - text/event-stream
+              - application/grpc
+              - application/octet-stream
+            minResponseBodyBytes: 1024
+            
+        filosifine-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.2"
+            checkPeriod: 5s
+            fallbackDuration: 10s
+            recoveryDuration: 10s
+            
+        filosifine-websocket-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.1"
+            checkPeriod: 3s
+            fallbackDuration: 5s
+            recoveryDuration: 5s
+            
+        filosifine-timeout:
+          timeout:
+            request: 30s
+            readTimeout: 30s
+            writeTimeout: 30s
+            idleTimeout: 60s
+            
+        filosifine-websocket-timeout:
+          timeout:
+            request: 300s
+            readTimeout: 300s
+            writeTimeout: 300s
+            idleTimeout: 600s
+            
+        filosifine-retry:
+          retry:
+            attempts: 3
+            initialInterval: 100ms
+            
+        filosifine-in-flight-req:
+          inFlightReq:
+            amount: 1000
+            sourceCriterion:
+              requestHeaderName: "X-Request-ID"
+              
+        filosifine-websocket-in-flight-req:
+          inFlightReq:
+            amount: 5000
+            sourceCriterion:
+              requestHeaderName: "X-Request-ID"

@@ -1,0 +1,500 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: gomeet
+  labels:
+    app: gomeet
+    component: api-config
+    provider: digitalocean
+data:
+  config.yaml: |
+    server:
+      port: 8080
+      gin_mode: release
+      read_timeout: 30s
+      write_timeout: 30s
+      idle_timeout: 60s
+      max_header_bytes: 1048576
+      
+    database:
+      host: aws-1-ap-southeast-1.pooler.supabase.com
+      port: 6543
+      user: postgres.hiupjemtmrchudfznagf
+      password: jiiancoK123oke
+      dbname: postgres
+      ssl_mode: require
+      max_open_conns: 500
+      max_idle_conns: 100
+      conn_max_lifetime: 300s
+      conn_max_idle_time: 60s
+      
+    redis:
+      host: thorough-orca-5577.upstash.io
+      port: 6379
+      password: ARXJAAImcDI4YTQ5NGM2MTMyZDQ0MDg1OWQxNGM2YWM3MGJjNmViMHAyNTU3Nw
+      db: 0
+      max_retries: 3
+      pool_size: 500
+      min_idle_conns: 50
+      dial_timeout: 5s
+      read_timeout: 3s
+      write_timeout: 3s
+      pool_timeout: 4s
+      idle_timeout: 300s
+      idle_check_frequency: 60s
+      tls_enabled: true
+      
+    jwt:
+      access_token_expiry: 15m
+      refresh_token_expiry: 168h
+      
+    websocket:
+      max_connections: 10000
+      read_buffer_size: 4096
+      write_buffer_size: 4096
+      ping_period: 54s
+      pong_wait: 60s
+      max_message_size: 1048576
+      enable_compression: true
+      
+    livekit:
+      host: livekit.filosofine.com
+      port: 7880
+      api_key: LK_KEY123
+      api_secret: LK_SECRET456
+      external: true
+      websocket_url: "wss://livekit.filosofine.com"
+      http_url: "https://livekit.filosofine.com"
+      
+    turn:
+      servers:
+        - host: turn.filosofine.com
+          port: 3478
+          protocol: udp
+        - host: turn.filosofine.com
+          port: 3478
+          protocol: tcp
+        - host: turn.filosofine.com
+          port: 3478
+          protocol: udp
+        - host: turn.filosofine.com
+          port: 3478
+          protocol: udp
+      secret: turn_secret_filosofine_2024
+      username: gomeet_turn
+      password: turn_password_filosofine_2024
+      tls_port: 5349
+      external_turn: true
+      
+    cors:
+      allowed_origins:
+        - "https://gomeet.com"
+        - "https://api.gomeet.com"
+        - "https://app.gomeet.com"
+        - "https://admin.gomeet.com"
+      allowed_methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      allowed_headers:
+        - Content-Type
+        - Authorization
+        - X-Requested-With
+      max_age: 86400
+      
+    rate_limiting:
+      enabled: true
+      requests_per_minute: 1000
+      burst: 2000
+      
+    logging:
+      level: info
+      format: json
+      output: stdout
+      
+    metrics:
+      enabled: true
+      path: /metrics
+      port: 9090
+      
+    tracing:
+      enabled: true
+      jaeger_endpoint: "http://jaeger:14268/api/traces"
+      sample_rate: 0.1
+      
+    circuit_breaker:
+      enabled: true
+      max_requests: 1000
+      interval: 30s
+      timeout: 60s
+      
+    cache:
+      enabled: true
+      ttl: 300s
+      max_size: 10000
+      
+    digitalocean:
+      region: nyc1
+      load_balancer_id: ""
+      cdn_endpoint: ""
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: traefik-config
+  namespace: gomeet
+  labels:
+    app: traefik
+    component: gateway
+    provider: digitalocean
+data:
+  traefik.yml: |
+    api:
+      dashboard: true
+      insecure: false
+      debug: false
+      
+    entryPoints:
+      web:
+        address: ":80"
+        http:
+          redirections:
+            entryPoint:
+              to: websecure
+              scheme: https
+              permanent: true
+          middlewares:
+            - security-headers@file
+            
+      websecure:
+        address: ":443"
+        http:
+          middlewares:
+            - security-headers@file
+            - rate-limit@file
+          tls:
+            options: modern@file
+            certResolver: letsencrypt
+            
+      websocket:
+        address: ":8080"
+        http:
+          middlewares:
+            - websocket-headers@file
+            - websocket-compression@file
+            
+      metrics:
+        address: ":8082"
+        
+    providers:
+      kubernetesCRD:
+        namespaces:
+          - gomeet
+        ingressClass: traefik
+        
+      kubernetesIngress:
+        namespaces:
+          - gomeet
+        ingressClass: traefik
+        
+      file:
+        directory: /etc/traefik/dynamic
+        watch: true
+        
+    certificatesResolvers:
+      letsencrypt:
+        acme:
+          email: admin@gomeet.com
+          storage: /etc/traefik/acme/acme.json
+          tlsChallenge: {}
+          httpChallenge:
+            entryPoint: web
+            
+    log:
+      level: INFO
+      format: json
+      filePath: /var/log/traefik/traefik.log
+      
+    accessLog:
+      filePath: /var/log/traefik/access.log
+      format: json
+      bufferingSize: 1000
+      fields:
+        defaultMode: keep
+        names:
+          ClientUsername: drop
+        headers:
+          defaultMode: keep
+          names:
+            User-Agent: keep
+            Authorization: drop
+            Content-Type: keep
+            
+    metrics:
+      prometheus:
+        addEntryPointsLabels: true
+        addServicesLabels: true
+        manualRouting: true
+        
+    tracing:
+      jaeger:
+        samplingServerURL: http://jaeger:14268/api/sampling
+        localAgentHostPort: jaeger:6831
+        
+    ping:
+      entryPoint: web
+      
+    pilot:
+      token: ""
+      
+    global:
+      checknewversion: false
+      sendanonymoususage: false
+
+  dynamic-config.yaml: |
+    http:
+      middlewares:
+        security-headers:
+          headers:
+            frameDeny: true
+            contentTypeNosniff: true
+            browserXssFilter: true
+            referrerPolicy: "strict-origin-when-cross-origin"
+            customRequestHeaders:
+              X-Forwarded-Proto: "https"
+            customResponseHeaders:
+              X-Content-Type-Options: "nosniff"
+              X-Frame-Options: "DENY"
+              X-XSS-Protection: "1; mode=block"
+              Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+              Content-Security-Policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self' wss: https:; media-src 'self' blob:;"
+              
+        rate-limit:
+          rateLimit:
+            average: 1000
+            burst: 2000
+            period: 1m
+            
+        websocket-headers:
+          headers:
+            customRequestHeaders:
+              X-Forwarded-Proto: "https"
+              X-Forwarded-For: "{{.ClientHost}}"
+            accessControlAllowCredentials: "true"
+            accessControlAllowHeaders: "Content-Type, Authorization, X-Requested-With"
+            accessControlAllowMethods: "GET, POST, OPTIONS"
+            accessControlAllowOriginList: "https://gomeet.com,https://api.gomeet.com,https://app.gomeet.com"
+            
+        api-ratelimit:
+          rateLimit:
+            average: 500
+            burst: 1000
+            period: 1m
+            
+        websocket-ratelimit:
+          rateLimit:
+            average: 2000
+            burst: 4000
+            period: 1m
+            
+        compression:
+          compress:
+            excludedContentTypes:
+              - text/event-stream
+              - application/grpc
+            minResponseBodyBytes: 1024
+            
+        api-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.2" 
+            checkPeriod: 5s
+            fallbackDuration: 10s
+            recoveryDuration: 10s
+            
+        websocket-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.1"
+            checkPeriod: 3s
+            fallbackDuration: 5s
+            recoveryDuration: 5s
+            
+        livekit-circuit-breaker:
+          circuitBreaker:
+            expression: "NetworkErrorRatio() > 0.15"
+            checkPeriod: 2s
+            fallbackDuration: 3s
+            recoveryDuration: 3s
+            
+        retry:
+          retry:
+            attempts: 3
+            initialInterval: 100ms
+            
+        timeout:
+          timeout:
+            request: 30s
+            readTimeout: 30s
+            writeTimeout: 30s
+            idleTimeout: 60s
+            
+        websocket-timeout:
+          timeout:
+            request: 300s
+            readTimeout: 300s
+            writeTimeout: 300s
+            idleTimeout: 600s
+            
+        in-flight-req:
+          inFlightReq:
+            amount: 1000
+            sourceCriterion:
+              requestHeaderName: "X-Request-ID"
+              
+        websocket-in-flight-req:
+          inFlightReq:
+            amount: 5000
+            sourceCriterion:
+              requestHeaderName: "X-Request-ID"
+            
+    tls:
+      options:
+        modern:
+          minVersion: "VersionTLS12"
+          cipherSuites:
+            - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+            - "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+            - "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305"
+            - "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305"
+            - "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+            - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+          sniStrict: true
+          curvePreferences:
+            - "CurveP521"
+            - "CurveP384"
+            - "CurveP256"
+            
+      stores:
+        default:
+          defaultCertificate:
+            certFile: /etc/traefik/certs/default.crt
+            keyFile: /etc/traefik/certs/default.key
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: gomeet
+  labels:
+    app: frontend
+    component: ui
+    provider: digitalocean
+data:
+  config.json: |
+    {
+      "api": {
+        "baseUrl": "https://api.gomeet.com",
+        "timeout": 30000,
+        "retries": 3
+      },
+      "websocket": {
+        "url": "wss://api.gomeet.com/api/v1/ws",
+        "reconnectInterval": 5000,
+        "maxReconnectAttempts": 10
+      },
+      "livekit": {
+        "url": "wss://livekit.filosofine.com",
+        "timeout": 10000
+      },
+      "features": {
+        "screenShare": true,
+        "recording": true,
+        "chat": true,
+        "participants": true,
+        "breakoutRooms": true,
+        "whiteboard": true
+      },
+      "limits": {
+        "maxParticipants": 500,
+        "maxDuration": 1440,
+        "maxFileSize": 104857600
+      },
+      "digitalocean": {
+        "cdn": "https://cdn.gomeet.com",
+        "region": "nyc1"
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: monitoring-config
+  namespace: gomeet
+  labels:
+    app: monitoring
+    component: config
+    provider: digitalocean
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+      evaluation_interval: 10s
+      external_labels:
+        cluster: 'gomeet-do-prod'
+        provider: 'digitalocean'
+        region: 'nyc1'
+        
+    rule_files:
+      - "/etc/prometheus/rules/*.yml"
+      
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+              - alertmanager:9093
+              
+    scrape_configs:
+      # Prometheus self-monitoring
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+        scrape_interval: 30s
+        
+      # Traefik metrics
+      - job_name: 'traefik'
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - gomeet
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: keep
+            regex: traefik
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+        scrape_interval: 5s
+        metrics_path: /metrics
+        
+      # DigitalOcean managed services metrics
+      - job_name: 'digitalocean-postgres'
+        static_configs:
+          - targets: ['postgres-exporter:9187']
+        scrape_interval: 10s
+        
+      - job_name: 'digitalocean-redis'
+        static_configs:
+          - targets: ['redis-exporter:9121']
+        scrape_interval: 10s

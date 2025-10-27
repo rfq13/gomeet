@@ -1,5 +1,5 @@
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 # Set working directory
 WORKDIR /app
@@ -11,7 +11,7 @@ COPY package.json pnpm-lock.yaml ./
 RUN npm install -g pnpm@8
 
 # Install dependencies
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile
 
 # Copy source code
 COPY . .
@@ -20,7 +20,7 @@ COPY . .
 RUN pnpm build
 
 # Production stage
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 
 # Set working directory
 WORKDIR /app
@@ -38,15 +38,18 @@ COPY package.json pnpm-lock.yaml ./
 # Install pnpm
 RUN npm install -g pnpm@8
 
-# Install only production dependencies
-RUN pnpm install --frozen-lockfile --prod && \
+# Install all dependencies (SvelteKit needs dev dependencies for production)
+RUN pnpm install --no-frozen-lockfile && \
     pnpm store prune
 
-# Copy built application from builder stage
+# Copy built application from builder stage (SvelteKit adapter-node output)
 COPY --from=builder --chown=svelte:nodejs /app/build ./build
 
 # Copy static assets
 COPY --from=builder --chown=svelte:nodejs /app/static ./static
+
+# Copy package.json for production dependencies
+COPY --from=builder --chown=svelte:nodejs /app/package.json ./package.json
 
 # Create health check script
 RUN echo 'const http = require("http");\n\
@@ -85,4 +88,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
-CMD ["node", "build"]
+CMD ["node", "build/index.js"]

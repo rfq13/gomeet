@@ -1,0 +1,333 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit-sfu
+  namespace: gomeet
+  labels:
+    app: livekit-sfu
+    component: sfu
+spec:
+  replicas: 25
+  selector:
+    matchLabels:
+      app: livekit-sfu
+  template:
+    metadata:
+      labels:
+        app: livekit-sfu
+        component: sfu
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - livekit-sfu
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: livekit-sfu
+          image: livekit/livekit-server:v1.5.0
+          ports:
+            - containerPort: 7880
+              name: http
+              protocol: TCP
+            - containerPort: 7881
+              name: rtc-udp
+              protocol: UDP
+            - containerPort: 7882
+              name: rtc-tcp
+              protocol: TCP
+            - containerPort: 7883
+              name: rtc-tls
+              protocol: TCP
+          env:
+            - name: REDIS_HOST
+              value: "redis-cluster:6379"
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: LIVEKIT_KEYS
+            - name: TURN_SERVERS
+              value: "turn:turn-server-1:3478,turn:turn-server-2:3478,turn:turn-server-3:3478,turn:turn-server-4:3478"
+            - name: TURN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: TURN_USERNAME
+            - name: TURN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gomeet-secrets
+                  key: TURN_PASSWORD
+            - name: PORT
+              value: "7880"
+            - name: RTC_UDP_PORT
+              value: "7881"
+            - name: RTC_TCP_PORT
+              value: "7882"
+            - name: RTC_TLS_PORT
+              value: "7883"
+            - name: HTTP_PORT
+              value: "7880"
+            - name: PROMETHEUS_PORT
+              value: "6789"
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: MAX_PARTICIPANTS_PER_ROOM
+              value: "500"
+            - name: ROOM_TIMEOUT
+              value: "300s"
+            - name: MIN_TRACK_UPDATE_INTERVAL
+              value: "50ms"
+            - name: STATS_UPDATE_INTERVAL
+              value: "5s"
+            - name: ENABLE_SIMULCAST
+              value: "true"
+            - name: SIMULCAST_LAYERS
+              value: "3"
+            - name: ENABLE_ADAPTIVE_STREAM
+              value: "true"
+            - name: MAX_VIDEO_BANDWIDTH
+              value: "3000"
+            - name: MIN_VIDEO_BANDWIDTH
+              value: "150"
+            - name: AUDIO_BITRATE
+              value: "64"
+            - name: ENABLE_RECORDING
+              value: "true"
+            - name: RECORDING_PATH
+              value: "/var/recordings"
+            - name: WEBRTC_PORT_RANGE
+              value: "10000-11000"
+            - name: WEBRTC_UDP_BUFFER_SIZE
+              value: "1048576"
+            - name: WEBRTC_TCP_BUFFER_SIZE
+              value: "1048576"
+          resources:
+            requests:
+              cpu: 16000m
+              memory: 64Gi
+            limits:
+              cpu: 32000m
+              memory: 128Gi
+              ephemeral-storage: 200Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7880
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7880
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: certs
+              mountPath: /etc/certs
+              readOnly: true
+            - name: logs
+              mountPath: /var/log/livekit
+            - name: recordings
+              mountPath: /var/recordings
+      volumes:
+        - name: certs
+          secret:
+            secretName: livekit-tls-certs
+        - name: logs
+          emptyDir: {}
+        - name: recordings
+          persistentVolumeClaim:
+            claimName: livekit-recordings
+      terminationGracePeriodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-sfu
+  namespace: gomeet
+  labels:
+    app: livekit-sfu
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "6789"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+    - port: 7880
+      targetPort: 7880
+      protocol: TCP
+      name: http
+    - port: 7881
+      targetPort: 7881
+      protocol: UDP
+      name: rtc-udp
+    - port: 7882
+      targetPort: 7882
+      protocol: TCP
+      name: rtc-tcp
+    - port: 7883
+      targetPort: 7883
+      protocol: TCP
+      name: rtc-tls
+    - port: 6789
+      targetPort: 6789
+      protocol: TCP
+      name: metrics
+  selector:
+    app: livekit-sfu
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: livekit-sfu-hpa
+  namespace: gomeet
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: livekit-sfu
+  minReplicas: 15
+  maxReplicas: 100
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    - type: Pods
+      pods:
+        metric:
+          name: livekit_participants_total
+        target:
+          type: AverageValue
+          averageValue: "400"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: livekit-sfu-pdb
+  namespace: gomeet
+spec:
+  minAvailable: 20
+  selector:
+    matchLabels:
+      app: livekit-sfu
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: livekit-sfu-netpol
+  namespace: gomeet
+spec:
+  podSelector:
+    matchLabels:
+      app: livekit-sfu
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: traefik
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 7880
+        - protocol: UDP
+          port: 7881
+        - protocol: TCP
+          port: 7882
+        - protocol: TCP
+          port: 7883
+        - protocol: TCP
+          port: 6789
+    - from: []
+      ports:
+        - protocol: UDP
+          port: 10000-11000
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              name: gomeet
+        - namespaceSelector:
+            matchLabels:
+              name: kube-system
+      ports:
+        - protocol: TCP
+          port: 53
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 5432
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: UDP
+          port: 3478
+        - protocol: TCP
+          port: 3478
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: livekit-recordings
+  namespace: gomeet
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Ti
+  storageClassName: do-block-storage-optimized
