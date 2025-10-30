@@ -4,8 +4,6 @@
 
 ### Secrets yang Telah Ter-Expose (SEGERA REVOKE):
 
-1. **DigitalOcean API Token**: `dop_v1_e17d38c4da4dac9e5ac3d32131ba3e790b3134db16ce3804348db3257965c07a`
-2. **OpenAI API Key**: `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`
 3. **Database URL**: PostgreSQL credentials ter-expose
 4. **Redis URL**: Redis credentials ter-expose
 5. **LiveKit Credentials**: API key dan secret ter-expose

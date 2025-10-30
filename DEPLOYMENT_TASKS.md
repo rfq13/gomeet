@@ -219,11 +219,6 @@ Dokumen ini berisi daftar tugas lengkap untuk deployment aplikasi GoMeet ke Digi
 
 - Redis: `rediss://default:ARXJAAImcDI4YTQ5NGM2MTMyZDQ0MDg1OWQxNGM2YWM3MGJjNmViMHAyNTU3Nw@thorough-orca-5577.upstash.io:6379`
 
-### Third-party Services
-
-- OpenAI API Key: `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`
-- Cloudinary API Key: `cpk_0e9fa30a2b984238891289b46195a246.b392beeb15db5b269525c28f9c649c79.1fXqhclBjPueuCxW4OiOCdxvTpRrMEDV`
-
 ---
 
 ## 🎯 SUCCESS METRICS
