@@ -3,23 +3,25 @@ package controllers
 import (
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
+	"github.com/filosofine/gomeet-backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 )
 
 type ChatController struct {
 	chatService *services.ChatService
+	customValidators *utils.CustomValidators
 }
 
 func NewChatController(chatService *services.ChatService) *ChatController {
+	customValidators := utils.NewCustomValidators()
 	return &ChatController{
 		chatService: chatService,
+		customValidators: customValidators,
 	}
 }
 
@@ -29,7 +31,7 @@ func (c *ChatController) GetMessages(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
@@ -75,20 +77,24 @@ func (c *ChatController) SendMessage(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
+
+	// Set custom validators in context for detailed error handling
+	ctx.Set("customValidators", c.customValidators)
 
 	// Parse request body
 	var req models.CreateChatMessageRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request format")
+		utils.ValidationError(ctx, err)
 		return
 	}
 
-	// Validate required fields
-	if req.Content == "" || strings.TrimSpace(req.Content) == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_CONTENT", "Message content cannot be empty")
+	// Validate using custom validator
+	validator := c.customValidators.GetValidator()
+	if err := validator.Struct(&req); err != nil {
+		utils.ValidationError(ctx, err)
 		return
 	}
 
@@ -164,16 +170,20 @@ func (c *ChatController) UpdateMessage(ctx *gin.Context) {
 		return
 	}
 
+	// Set custom validators in context for detailed error handling
+	ctx.Set("customValidators", c.customValidators)
+
 	// Parse request body
 	var req models.UpdateChatMessageRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request format")
+		utils.ValidationError(ctx, err)
 		return
 	}
 
-	// Validate content if provided
-	if req.Content != nil && (strings.TrimSpace(*req.Content) == "") {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_CONTENT", "Message content cannot be empty")
+	// Validate using custom validator
+	validator := c.customValidators.GetValidator()
+	if err := validator.Struct(&req); err != nil {
+		utils.ValidationError(ctx, err)
 		return
 	}
 
@@ -304,7 +314,7 @@ func (c *ChatController) GetUnreadCount(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 

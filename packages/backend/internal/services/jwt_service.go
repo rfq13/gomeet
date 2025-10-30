@@ -7,8 +7,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
-	"github.com/your-org/gomeet/packages/backend/internal/config"
-	"github.com/your-org/gomeet/packages/backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/config"
+	"github.com/filosofine/gomeet-backend/internal/models"
 )
 
 type JWTService struct {

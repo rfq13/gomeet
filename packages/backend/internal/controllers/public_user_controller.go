@@ -7,20 +7,23 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
+	"github.com/filosofine/gomeet-backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 )
 
 type PublicUserController struct {
 	publicUserService *services.PublicUserService
 	validator         *validator.Validate
+	customValidators *utils.CustomValidators
 }
 
 func NewPublicUserController(publicUserService *services.PublicUserService) *PublicUserController {
+	customValidators := utils.NewCustomValidators()
 	return &PublicUserController{
 		publicUserService: publicUserService,
-		validator:         validator.New(),
+		validator:         customValidators.GetValidator(),
+		customValidators: customValidators,
 	}
 }
 
@@ -36,20 +39,23 @@ func NewPublicUserController(publicUserService *services.PublicUserService) *Pub
 // @Failure 500 {object} utils.ErrorResponse
 // @Router /api/public/users [post]
 func (c *PublicUserController) CreatePublicUser(ctx *gin.Context) {
+	// Set custom validators in context for detailed error handling
+	ctx.Set("customValidators", c.customValidators)
+
 	var req models.CreatePublicUserRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	publicUser, err := c.publicUserService.CreatePublicUser(&req)
 	if err != nil {
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -71,32 +77,32 @@ func (c *PublicUserController) CreatePublicUser(ctx *gin.Context) {
 func (c *PublicUserController) JoinMeetingAsPublicUser(ctx *gin.Context) {
 	var req models.JoinMeetingAsPublicUserRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	meetingID, err := uuid.Parse(req.MeetingID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	participant, err := c.publicUserService.JoinMeetingAsPublicUser(req.SessionID, meetingID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
 		if err.Error() == "public user not found" {
-			utils.NotFoundResponse(ctx, "Public user not found")
+			utils.HandleNotFoundResponse(ctx, "Public user not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -118,28 +124,28 @@ func (c *PublicUserController) JoinMeetingAsPublicUser(ctx *gin.Context) {
 func (c *PublicUserController) LeaveMeetingAsPublicUser(ctx *gin.Context) {
 	var req models.LeaveMeetingAsPublicUserRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	meetingID, err := uuid.Parse(req.MeetingID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	err = c.publicUserService.LeaveMeetingAsPublicUser(req.SessionID, meetingID)
 	if err != nil {
 		if err.Error() == "meeting not found" || err.Error() == "public user not found" || err.Error() == "participant not found" {
-			utils.NotFoundResponse(ctx, "Meeting, public user, or participant not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting, public user, or participant not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -161,17 +167,17 @@ func (c *PublicUserController) GetPublicUserBySessionID(ctx *gin.Context) {
 	sessionID := ctx.Param("session_id")
 
 	if sessionID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_PUBLIC_USER_ID", "Invalid public user session ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_PUBLIC_USER_ID, "Invalid public user session ID")
 		return
 	}
 
 	publicUser, err := c.publicUserService.GetPublicUserBySessionID(sessionID)
 	if err != nil {
 		if err.Error() == "public user not found" {
-			utils.NotFoundResponse(ctx, "Public user not found")
+			utils.HandleNotFoundResponse(ctx, "Public user not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 

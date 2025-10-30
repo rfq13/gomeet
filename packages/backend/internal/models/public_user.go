@@ -8,7 +8,7 @@ import (
 )
 
 type PublicUser struct {
-	ID        uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	Name      string    `gorm:"not null" json:"name"`
 	SessionID string    `gorm:"not null;uniqueIndex" json:"sessionId"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"createdAt"`

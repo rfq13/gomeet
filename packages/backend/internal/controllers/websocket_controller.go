@@ -8,9 +8,9 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
+	"github.com/filosofine/gomeet-backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 )
 
 type WebSocketController struct {
@@ -59,20 +59,20 @@ func (c *WebSocketController) GetMeetingParticipants(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	// Check if meeting exists and user has access
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -93,12 +93,12 @@ func (c *WebSocketController) GetMeetingParticipants(ctx *gin.Context) {
 		// Check if user is the meeting host
 		var meeting models.Meeting
 		if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
 		
 		if meeting.HostID != userUUID {
-			utils.ForbiddenResponse(ctx, "You don't have access to this meeting")
+			utils.HandleForbiddenResponse(ctx, "You don't have access to this meeting")
 			return
 		}
 	}
@@ -137,14 +137,14 @@ func (c *WebSocketController) GetParticipantCount(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	// Check if meeting exists
 	var meeting models.Meeting
 	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
-		utils.NotFoundResponse(ctx, "Meeting not found")
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
 		return
 	}
 
@@ -177,42 +177,42 @@ func (c *WebSocketController) SendMessageToMeeting(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	// Check if user is the meeting host
 	var meeting models.Meeting
 	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
-		utils.NotFoundResponse(ctx, "Meeting not found")
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
 		return
 	}
 
 	if meeting.HostID != userUUID {
-		utils.ForbiddenResponse(ctx, "Only meeting hosts can send messages to all participants")
+		utils.HandleForbiddenResponse(ctx, "Only meeting hosts can send messages to all participants")
 		return
 	}
 
 	var req SendMessageRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 

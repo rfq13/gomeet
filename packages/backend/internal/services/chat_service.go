@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/models"
 )
 
 type ChatService struct {

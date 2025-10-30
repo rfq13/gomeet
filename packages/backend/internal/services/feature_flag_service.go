@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/filosofine/gomeet-backend/internal/cache"
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
 type FeatureFlagService struct {
-	redis  *redis.Client
-	db     *gorm.DB
-	logger *logrus.Logger
+	redis     *redis.Client
+	db        *gorm.DB
+	logger    *logrus.Logger
+	cacheRepo *cache.CacheRepository
 }
 
 type FeatureFlag struct {
@@ -41,14 +43,15 @@ const (
 	DefaultEnableSFULogs = true
 )
 
-func NewFeatureFlagService(redisClient *redis.Client, db *gorm.DB) *FeatureFlagService {
+func NewFeatureFlagService(redisClient *redis.Client, db *gorm.DB, cacheRepo *cache.CacheRepository) *FeatureFlagService {
 	logger := logrus.New()
 	logger.SetLevel(logrus.InfoLevel)
 
 	service := &FeatureFlagService{
-		redis:  redisClient,
-		db:     db,
-		logger: logger,
+		redis:     redisClient,
+		db:        db,
+		logger:    logger,
+		cacheRepo: cacheRepo,
 	}
 
 	// Initialize default feature flags
@@ -126,13 +129,27 @@ func (s *FeatureFlagService) getFlagDescription(flagName string) string {
 
 // IsFlagEnabled checks if a feature flag is enabled
 func (s *FeatureFlagService) IsFlagEnabled(flagName string) (bool, error) {
+	// Try to get from cache first
+	enabled, found, err := s.cacheRepo.GetFeatureFlag(flagName)
+	if err != nil {
+		s.logger.WithError(err).WithField("flag", flagName).Error("Failed to get feature flag from cache")
+	}
+	
+	if found {
+		return enabled, nil
+	}
+
+	// Cache miss, get from Redis
 	ctx := context.Background()
 	key := s.getFlagKey(flagName)
 
-	// Try to get from Redis first
-	enabled, err := s.redis.Get(ctx, key).Bool()
+	redisEnabled, err := s.redis.Get(ctx, key).Bool()
 	if err == nil {
-		return enabled, nil
+		// Cache the result
+		if cacheErr := s.cacheRepo.SetFeatureFlag(flagName, redisEnabled); cacheErr != nil {
+			s.logger.WithError(cacheErr).WithField("flag", flagName).Error("Failed to cache feature flag")
+		}
+		return redisEnabled, nil
 	}
 
 	if err != redis.Nil {
@@ -140,22 +157,41 @@ func (s *FeatureFlagService) IsFlagEnabled(flagName string) (bool, error) {
 	}
 
 	// Fallback to default values
+	var defaultValue bool
 	switch flagName {
 	case FeatureUseLiveKitSFU:
-		return DefaultUseLiveKitSFU, nil
+		defaultValue = DefaultUseLiveKitSFU
 	case FeatureUseWebRTCMesh:
-		return DefaultUseWebRTCMesh, nil
+		defaultValue = DefaultUseWebRTCMesh
 	case FeatureEnableSFULogs:
-		return DefaultEnableSFULogs, nil
+		defaultValue = DefaultEnableSFULogs
 	default:
 		return false, fmt.Errorf("unknown feature flag: %s", flagName)
 	}
+
+	// Cache the default value
+	if cacheErr := s.cacheRepo.SetFeatureFlag(flagName, defaultValue); cacheErr != nil {
+		s.logger.WithError(cacheErr).WithField("flag", flagName).Error("Failed to cache feature flag default value")
+	}
+
+	return defaultValue, nil
 }
 
 // SetFlag enables or disables a feature flag
 func (s *FeatureFlagService) SetFlag(flagName string, enabled bool) error {
 	ctx := context.Background()
-	return s.setFlag(ctx, flagName, enabled)
+	
+	// Set in Redis
+	if err := s.setFlag(ctx, flagName, enabled); err != nil {
+		return err
+	}
+	
+	// Update cache
+	if err := s.cacheRepo.SetFeatureFlag(flagName, enabled); err != nil {
+		s.logger.WithError(err).WithField("flag", flagName).Error("Failed to update feature flag cache")
+	}
+	
+	return nil
 }
 
 // GetFeatureConfig returns the current feature configuration

@@ -8,20 +8,23 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
+	"github.com/filosofine/gomeet-backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 )
 
 type MeetingController struct {
 	meetingService *services.MeetingService
 	validator      *validator.Validate
+	customValidators *utils.CustomValidators
 }
 
 func NewMeetingController(meetingService *services.MeetingService) *MeetingController {
+	customValidators := utils.NewCustomValidators()
 	return &MeetingController{
 		meetingService: meetingService,
-		validator:      validator.New(),
+		validator:      customValidators.GetValidator(),
+		customValidators: customValidators,
 	}
 }
 
@@ -41,30 +44,33 @@ func NewMeetingController(meetingService *services.MeetingService) *MeetingContr
 func (c *MeetingController) CreateMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
+	// Set custom validators in context for detailed error handling
+	ctx.Set("customValidators", c.customValidators)
+
 	var req models.CreateMeetingRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	meeting, err := c.meetingService.CreateMeeting(userUUID, &req)
 	if err != nil {
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -87,13 +93,13 @@ func (c *MeetingController) CreateMeeting(ctx *gin.Context) {
 func (c *MeetingController) GetMeetings(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -112,7 +118,7 @@ func (c *MeetingController) GetMeetings(ctx *gin.Context) {
 
 	response, err := c.meetingService.GetMeetings(userUUID, page, limit, search)
 	if err != nil {
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -135,34 +141,34 @@ func (c *MeetingController) GetMeetings(ctx *gin.Context) {
 func (c *MeetingController) GetMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	meeting, err := c.meetingService.GetMeetingByID(meetingID, userUUID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
 		if err.Error() == "unauthorized access to meeting" {
-			utils.ForbiddenResponse(ctx, "You don't have permission to access this meeting")
+			utils.HandleForbiddenResponse(ctx, "You don't have permission to access this meeting")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -184,17 +190,17 @@ func (c *MeetingController) GetMeetingPublic(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	meeting, err := c.meetingService.GetMeetingByIDPublic(meetingID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -220,41 +226,50 @@ func (c *MeetingController) GetMeetingPublic(ctx *gin.Context) {
 func (c *MeetingController) UpdateMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
+	// Set custom validators in context for detailed error handling
+	ctx.Set("customValidators", c.customValidators)
+
 	var req models.UpdateMeetingRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	// Validate that at least one field is provided
+	if req.Name == nil && req.StartTime == nil && req.Participants == nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_002, "At least one field must be provided for update")
 		return
 	}
 
 	meeting, err := c.meetingService.UpdateMeeting(meetingID, userUUID, &req)
 	if err != nil {
 		if err.Error() == "meeting not found or unauthorized" {
-			utils.ForbiddenResponse(ctx, "Meeting not found or you don't have permission to update it")
+			utils.HandleForbiddenResponse(ctx, "Meeting not found or you don't have permission to update it")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -278,30 +293,30 @@ func (c *MeetingController) UpdateMeeting(ctx *gin.Context) {
 func (c *MeetingController) DeleteMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	err = c.meetingService.DeleteMeeting(meetingID, userUUID)
 	if err != nil {
 		if err.Error() == "meeting not found or unauthorized" {
-			utils.ForbiddenResponse(ctx, "Meeting not found or you don't have permission to delete it")
+			utils.HandleForbiddenResponse(ctx, "Meeting not found or you don't have permission to delete it")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -322,13 +337,13 @@ func (c *MeetingController) DeleteMeeting(ctx *gin.Context) {
 func (c *MeetingController) GetUpcomingMeetings(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -339,7 +354,7 @@ func (c *MeetingController) GetUpcomingMeetings(ctx *gin.Context) {
 
 	meetings, err := c.meetingService.GetUpcomingMeetings(userUUID, limit)
 	if err != nil {
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -367,7 +382,7 @@ func (c *MeetingController) GetUpcomingMeetings(ctx *gin.Context) {
 func (c *MeetingController) GetPastMeetings(ctx *gin.Context) {
 	userUUID, exists := utils.GetUserIDUUID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
@@ -385,7 +400,7 @@ func (c *MeetingController) GetPastMeetings(ctx *gin.Context) {
 
 	response, err := c.meetingService.GetPastMeetings(userUUID, page, limit)
 	if err != nil {
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -409,34 +424,34 @@ func (c *MeetingController) GetPastMeetings(ctx *gin.Context) {
 func (c *MeetingController) JoinMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	var req models.JoinMeetingRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	participant, err := c.meetingService.JoinMeeting(userUUID, req.MeetingID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -460,34 +475,34 @@ func (c *MeetingController) JoinMeeting(ctx *gin.Context) {
 func (c *MeetingController) LeaveMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	var req models.LeaveMeetingRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	err = c.meetingService.LeaveMeeting(userUUID, req.MeetingID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -509,17 +524,17 @@ func (c *MeetingController) GetMeetingParticipantsPublic(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	participants, err := c.meetingService.GetMeetingParticipantsPublic(meetingID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -542,30 +557,30 @@ func (c *MeetingController) GetMeetingParticipantsPublic(ctx *gin.Context) {
 func (c *MeetingController) GetMeetingParticipants(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	participants, err := c.meetingService.GetMeetingParticipants(meetingID, userUUID)
 	if err != nil {
 		if err.Error() == "meeting not found" {
-			utils.NotFoundResponse(ctx, "Meeting not found")
+			utils.HandleNotFoundResponse(ctx, "Meeting not found")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -587,13 +602,13 @@ func (c *MeetingController) GetMeetingParticipants(ctx *gin.Context) {
 func (c *MeetingController) GetJoinedMeetings(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -611,7 +626,7 @@ func (c *MeetingController) GetJoinedMeetings(ctx *gin.Context) {
 
 	response, err := c.meetingService.GetJoinedMeetings(userUUID, page, limit)
 	if err != nil {
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -635,30 +650,30 @@ func (c *MeetingController) GetJoinedMeetings(ctx *gin.Context) {
 func (c *MeetingController) StartMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	meeting, err := c.meetingService.StartMeeting(meetingID, userUUID)
 	if err != nil {
 		if err.Error() == "meeting not found or unauthorized" {
-			utils.ForbiddenResponse(ctx, "Meeting not found or you don't have permission to start it")
+			utils.HandleForbiddenResponse(ctx, "Meeting not found or you don't have permission to start it")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -682,30 +697,30 @@ func (c *MeetingController) StartMeeting(ctx *gin.Context) {
 func (c *MeetingController) EndMeeting(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	meeting, err := c.meetingService.EndMeeting(meetingID, userUUID)
 	if err != nil {
 		if err.Error() == "meeting not found or unauthorized" {
-			utils.ForbiddenResponse(ctx, "Meeting not found or you don't have permission to end it")
+			utils.HandleForbiddenResponse(ctx, "Meeting not found or you don't have permission to end it")
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 

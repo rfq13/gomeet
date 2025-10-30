@@ -13,7 +13,7 @@ import (
 	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/models"
 )
 
 type WebSocketService struct {
@@ -78,6 +78,8 @@ func (s *WebSocketService) HandleWebSocket(ctx *gin.Context) {
 	// Get client information from query parameters or JWT token
 	clientID := ctx.Query("clientId")
 	sessionID := ctx.Query("sessionId")
+	
+	log.Printf("[DEBUG] WebSocket connection params - clientID: %s, sessionID: %s", clientID, sessionID)
 
 	// Determine if user is authenticated or public user
 	var userID *uuid.UUID
@@ -87,35 +89,76 @@ func (s *WebSocketService) HandleWebSocket(ctx *gin.Context) {
 
 	// Try to get user from JWT token first
 	authHeader := ctx.GetHeader("Authorization")
+	log.Printf("[DEBUG] WebSocket connection - Auth header present: %t", authHeader != "")
 	if authHeader != "" && len(authHeader) > 7 && authHeader[:7] == "Bearer " {
 		token := authHeader[7:]
+		log.Printf("[DEBUG] WebSocket connection - JWT token found, length: %d", len(token))
 		claims, err := s.jwtService.ValidateAccessToken(token)
 		if err == nil {
 			userID = &claims.UserID
 			isAuth = true
+			log.Printf("[DEBUG] WebSocket connection - JWT validation successful, userID: %s", claims.UserID.String())
 			
 			// Get user details
 			var user models.User
 			if err := s.db.Where("id = ?", claims.UserID).First(&user).Error; err == nil {
 				userName = user.Username
+				log.Printf("[DEBUG] WebSocket connection - User found in database: %s (ID: %s)", user.Username, user.ID.String())
+			} else {
+				log.Printf("[ERROR] WebSocket connection - User not found in database for userID: %s, error: %v", claims.UserID.String(), err)
 			}
+		} else {
+			log.Printf("[ERROR] WebSocket connection - JWT validation failed: %v", err)
 		}
+	} else {
+		log.Printf("[DEBUG] WebSocket connection - No valid JWT token found in auth header")
 	}
 
 	// If not authenticated, try to get public user from session ID
 	if !isAuth && sessionID != "" {
+		log.Printf("[DEBUG] WebSocket connection - Trying public user lookup with sessionID: %s", sessionID)
 		var publicUser models.PublicUser
 		if err := s.db.Where("session_id = ?", sessionID).First(&publicUser).Error; err == nil {
 			publicUserID = &publicUser.ID
 			userName = publicUser.Name
+			log.Printf("[DEBUG] WebSocket connection - Public user found: %s (ID: %s)", publicUser.Name, publicUser.ID.String())
+		} else {
+			log.Printf("[ERROR] WebSocket connection - Public user not found for sessionID: %s, error: %v", sessionID, err)
+			
+			// AUTO-CREATION: Create a default public user if not found
+			// This prevents "Anonymous User" issue when public user session is lost
+			log.Printf("[INFO] WebSocket connection - Auto-creating public user for sessionID: %s", sessionID)
+			
+			// Generate a default name for the public user
+			defaultName := fmt.Sprintf("Guest %s", sessionID[len(sessionID)-4:])
+			
+			newPublicUser := &models.PublicUser{
+				Name:      defaultName,
+				SessionID: sessionID,
+			}
+			
+			if err := s.db.Create(newPublicUser).Error; err != nil {
+				log.Printf("[ERROR] WebSocket connection - Failed to auto-create public user: %v", err)
+				// Continue with fallback name generation
+			} else {
+				publicUserID = &newPublicUser.ID
+				userName = newPublicUser.Name
+				log.Printf("[INFO] WebSocket connection - Successfully auto-created public user: %s (ID: %s)", newPublicUser.Name, newPublicUser.ID.String())
+			}
 		}
+	} else {
+		log.Printf("[DEBUG] WebSocket connection - Already authenticated or no sessionID provided")
 	}
 
 	// If still no user info, try alternative identification methods
 	if userName == "" {
 		log.Printf("[DEBUG] No user name found, trying alternative identification methods")
+		log.Printf("[DEBUG] Current state - userID: %v, publicUserID: %v, clientID: %s, sessionID: %s",
+			func() string { if userID != nil { return userID.String() } else { return "nil" } }(),
+			func() string { if publicUserID != nil { return publicUserID.String() } else { return "nil" } }(),
+			clientID, sessionID)
 		
-		// Try to generate meaningful fallback name based on available identifiers
+		// FIXED: Generate meaningful fallback name - NEVER use "Anonymous User"
 		if clientID != "" {
 			// Use client ID to generate a more meaningful name
 			if strings.HasPrefix(clientID, "user_") {
@@ -133,11 +176,13 @@ func (s *WebSocketService) HandleWebSocket(ctx *gin.Context) {
 			userName = fmt.Sprintf("Guest %s", sessionID[len(sessionID)-4:]) // Use last 4 chars of session ID
 			log.Printf("[DEBUG] Generated fallback name from session ID: %s -> %s", sessionID, userName)
 		} else {
-			// Last resort: generate a random but meaningful name
+			// Last resort: generate a random but meaningful name - NEVER "Anonymous User"
 			randomSuffix := uuid.New().String()[:8]
-			userName = fmt.Sprintf("User %s", randomSuffix)
+			userName = fmt.Sprintf("Participant %s", randomSuffix)
 			log.Printf("[WARNING] Generated random fallback name: %s - no identifiers available", userName)
 		}
+	} else {
+		log.Printf("[DEBUG] User name successfully resolved: %s", userName)
 	}
 	
 	// CRITICAL FIX: Use deterministic client ID instead of random UUID

@@ -10,14 +10,45 @@
 	// Import components yang akan dimigrasi
 	import AppLogo from '../components/AppLogo.svelte';
 	import UserNav from '../components/UserNav.svelte';
+	import ErrorBoundary from '../lib/components/ErrorBoundary.svelte';
 	
 	// Auth context akan diimplementasikan sebagai Svelte store
 	import { authStore } from '../lib/stores/auth.store';
+	import { logger } from '../lib/logger';
 	
-	onMount(async () => {
-		// Initialize auth on app load
+	onMount(() => {
+		// Initialize logger first
 		if (browser) {
-			await authStore.initialize();
+			// Initialize comprehensive logging system
+			logger.initialize({
+				sessionId: logger.generateSessionId()
+			});
+			
+			// Log application startup
+			logger.info('Application initialized', {
+				category: 'system',
+				operation: 'app_init',
+				userAgent: navigator.userAgent,
+				url: window.location.href
+			});
+			
+			// Initialize auth after logger
+			authStore.initialize().then(() => {
+				// Subscribe to auth store changes to update logger context
+				const unsubscribe = authStore.subscribe((authState) => {
+					if (authState.user) {
+						logger.setContext({
+							userId: authState.user.id,
+							userEmail: authState.user.email
+						});
+					}
+				});
+				
+				// Cleanup on unmount
+				return () => {
+					unsubscribe();
+				};
+			});
 		}
 	});
 	
@@ -36,39 +67,41 @@
 	/>
 </svelte:head>
 
-<div class="font-body antialiased min-h-screen">
-	{#if $authStore.loading}
-		<div class="flex items-center justify-center min-h-screen">
-			<p>Loading...</p>
-		</div>
-	{:else}
-		{#if isDashboardRoute}
-			<!-- Dashboard Layout -->
-			<div class="flex min-h-screen w-full flex-col bg-muted/40">
-				<header class="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-50">
-					<nav class="flex-col gap-6 text-lg font-medium md:flex md:flex-row md:items-center md:gap-5 md:text-sm lg:gap-6 w-full">
-						<a href="/dashboard" class="flex items-center gap-2 text-lg font-semibold md:text-base">
-							<AppLogo className="h-7 w-7" />
-							<span class="sr-only">GoMeet</span>
-						</a>
-						<div class="flex w-full items-center gap-4 md:ml-auto md:gap-2 lg:gap-4">
-							<div class="ml-auto flex-1 sm:flex-initial">
-								<!-- This could be a create meeting dialog trigger -->
-							</div>
-							<UserNav />
-						</div>
-					</nav>
-				</header>
-				<main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
-					{@render children()}
-				</main>
+<ErrorBoundary position="top-right" maxErrors={5}>
+	<div class="font-body antialiased min-h-screen">
+		{#if $authStore.loading}
+			<div class="flex items-center justify-center min-h-screen">
+				<p>Loading...</p>
 			</div>
 		{:else}
-			<!-- Regular Layout -->
-			{@render children()}
+			{#if isDashboardRoute}
+				<!-- Dashboard Layout -->
+				<div class="flex min-h-screen w-full flex-col bg-muted/40">
+					<header class="sticky top-0 flex h-16 items-center gap-4 border-b bg-background px-4 md:px-6 z-50">
+						<nav class="flex-col gap-6 text-lg font-medium md:flex md:flex-row md:items-center md:gap-5 md:text-sm lg:gap-6 w-full">
+							<a href="/dashboard" class="flex items-center gap-2 text-lg font-semibold md:text-base">
+								<AppLogo className="h-7 w-7" />
+								<span class="sr-only">GoMeet</span>
+							</a>
+							<div class="flex w-full items-center gap-4 md:ml-auto md:gap-2 lg:gap-4">
+								<div class="ml-auto flex-1 sm:flex-initial">
+									<!-- This could be a create meeting dialog trigger -->
+								</div>
+								<UserNav />
+							</div>
+						</nav>
+					</header>
+					<main class="flex flex-1 flex-col gap-4 p-4 md:gap-8 md:p-8">
+						{@render children()}
+					</main>
+				</div>
+			{:else}
+				<!-- Regular Layout -->
+				{@render children()}
+			{/if}
 		{/if}
-	{/if}
-</div>
+	</div>
+</ErrorBoundary>
 
 <style>
 	:global(body) {

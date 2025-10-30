@@ -86,7 +86,7 @@ type ChatMessageResponse struct {
 type CreateChatMessageRequest struct {
 	MeetingID      uuid.UUID  `json:"meetingId" validate:"required"`
 	MessageType    MessageType `json:"messageType" validate:"required"`
-	Content        string     `json:"content" validate:"required,max=2000"`
+	Content        string     `json:"content" validate:"required,chat_content"`
 	ReplyToID      *uuid.UUID `json:"replyToId,omitempty"`
 	AttachmentURL  string     `json:"attachmentUrl,omitempty"`
 	AttachmentType string     `json:"attachmentType,omitempty"`
@@ -94,7 +94,7 @@ type CreateChatMessageRequest struct {
 }
 
 type UpdateChatMessageRequest struct {
-	Content        *string `json:"content,omitempty" validate:"omitempty,max=2000"`
+	Content        *string `json:"content,omitempty" validate:"omitempty,chat_content"`
 	IsDeleted      *bool   `json:"isDeleted,omitempty"`
 }
 

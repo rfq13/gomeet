@@ -2,22 +2,24 @@ package database
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/your-org/gomeet/packages/backend/internal/config"
-	"github.com/your-org/gomeet/packages/backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/config"
+	"github.com/filosofine/gomeet-backend/internal/models"
 )
 
 func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
+	// Build DSN with basic parameters only
 	dsn := fmt.Sprintf(
 		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s",
 		cfg.Host,
@@ -27,39 +29,67 @@ func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
 		cfg.Port,
 		cfg.SSLMode,
 	)
-	
-	// Disable prepared statements by using a different approach
-	// We'll configure this in GORM options instead
+
+	return InitializeWithDSN(dsn)
+}
+
+// InitializeWithURL initializes database connection using a direct PostgreSQL URL
+func InitializeWithURL(postgresURL string) (*gorm.DB, error) {
+	return InitializeWithDSN(postgresURL)
+}
+
+// InitializeWithDSN initializes database connection using a DSN string
+func InitializeWithDSN(dsn string) (*gorm.DB, error) {
 
 	// Configure GORM logger with detailed logging
 	gormLogger := logger.Default.LogMode(logger.Info)
-	if cfg.SSLMode == "disable" {
-		gormLogger = logger.Default.LogMode(logger.Info) // Keep Info for debugging
+
+	// Parse the DSN using pgx to configure driver-level options
+	pgxConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse pgx config: %w", err)
 	}
 
-	// Configure GORM with disabled prepared statements
+	// Set PreferSimpleProtocol to true to force simple query protocol (no PREPARE/EXECUTE)
+	pgxConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	// Create a database connection using pgx driver with simple protocol
+	sqlDB := stdlib.OpenDB(*pgxConfig)
+
+	// Configure GORM with disabled prepared statements and custom driver
 	gormConfig := &gorm.Config{
 		Logger: gormLogger,
 		DisableForeignKeyConstraintWhenMigrating: true,
-		PrepareStmt:                              false, // Disable prepared statements
+		PrepareStmt:                              false, // Disable prepared statements at GORM level
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
+	// Open GORM with the custom pgx database connection
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		Conn: sqlDB,
+	}), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
 	// Test the connection
-	sqlDB, err := db.DB()
+	dbSQL, err := db.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database instance: %w", err)
 	}
 
-	if err := sqlDB.Ping(); err != nil {
+	if err := dbSQL.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+	
+	// Clear any existing prepared statements
+	if _, err := dbSQL.Exec("DISCARD ALL"); err != nil {
+		logrus.Warnf("Failed to discard prepared statements: %v", err)
 	}
 
 	logrus.Info("Database connection established successfully")
+	logrus.Info("Driver-level protection enabled: pgx QueryExecModeSimpleProtocol")
+	logrus.Info("GORM-level protection enabled: PrepareStmt=false")
+	logrus.Info("2-layer prepared statement conflict protection is now active")
 
 	// Run SQL file migrations first (to enable pgcrypto extension)
 	if err := runSQLFileMigrations(db); err != nil {
@@ -68,16 +98,11 @@ func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
 
 	logrus.Info("SQL file migrations completed successfully")
 
-	// TODO: Temporarily skip auto-migrate to test SQL migrations first
-	// Auto-migrate the schema
+	// Auto-migrate the schema - temporarily disabled for debugging
 	// if err := autoMigrate(db); err != nil {
 	// 	return nil, fmt.Errorf("failed to migrate database: %w", err)
 	// }
-	// logrus.Info("Database migration completed successfully")
-
-	// Skip manual migrations for now to avoid prepared statement conflicts
-	// TODO: Fix prepared statement issues with Supabase before enabling migrations
-	logrus.Info("Skipping manual migrations due to Supabase prepared statement conflicts")
+	logrus.Info("Database migration skipped for debugging - using SQL migrations only")
 
 	return db, nil
 }
@@ -93,98 +118,72 @@ func autoMigrate(db *gorm.DB) error {
 
 // CreateIndexes creates database indexes for better performance
 func CreateIndexes(db *gorm.DB) error {
+	logrus.Info("Starting database indexes creation...")
+	
 	// User indexes
+	logrus.Info("Creating index: idx_users_email on users(email)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)").Error; err != nil {
+		logrus.Errorf("Failed to create users email index: %v", err)
 		return fmt.Errorf("failed to create users email index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_users_email")
 
 	// Meeting indexes
+	logrus.Info("Creating index: idx_meetings_host_id on meetings(host_id)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_meetings_host_id ON meetings(host_id)").Error; err != nil {
+		logrus.Errorf("Failed to create meetings host_id index: %v", err)
 		return fmt.Errorf("failed to create meetings host_id index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_meetings_host_id")
 
+	logrus.Info("Creating index: idx_meetings_start_time on meetings(start_time)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_meetings_start_time ON meetings(start_time)").Error; err != nil {
+		logrus.Errorf("Failed to create meetings start_time index: %v", err)
 		return fmt.Errorf("failed to create meetings start_time index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_meetings_start_time")
 
+	logrus.Info("Creating composite index: idx_meetings_host_start on meetings(host_id, start_time)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_meetings_host_start ON meetings(host_id, start_time)").Error; err != nil {
+		logrus.Errorf("Failed to create meetings composite index: %v", err)
 		return fmt.Errorf("failed to create meetings composite index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_meetings_host_start")
 
 	// PublicUser indexes
+	logrus.Info("Creating index: idx_public_users_session_id on public_users(session_id)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_public_users_session_id ON public_users(session_id)").Error; err != nil {
+		logrus.Errorf("Failed to create public_users session_id index: %v", err)
 		return fmt.Errorf("failed to create public_users session_id index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_public_users_session_id")
 
 	// Participant indexes
+	logrus.Info("Creating index: idx_participants_meeting_id on participants(meeting_id)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_participants_meeting_id ON participants(meeting_id)").Error; err != nil {
+		logrus.Errorf("Failed to create participants meeting_id index: %v", err)
 		return fmt.Errorf("failed to create participants meeting_id index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_participants_meeting_id")
 
+	logrus.Info("Creating index: idx_participants_user_id on participants(user_id)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_participants_user_id ON participants(user_id)").Error; err != nil {
+		logrus.Errorf("Failed to create participants user_id index: %v", err)
 		return fmt.Errorf("failed to create participants user_id index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_participants_user_id")
 
+	logrus.Info("Creating index: idx_participants_public_user_id on participants(public_user_id)")
 	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_participants_public_user_id ON participants(public_user_id)").Error; err != nil {
+		logrus.Errorf("Failed to create participants public_user_id index: %v", err)
 		return fmt.Errorf("failed to create participants public_user_id index: %w", err)
 	}
+	logrus.Info("✓ Successfully created index: idx_participants_public_user_id")
 
-	logrus.Info("Database indexes created successfully")
+	logrus.Info("🎉 All database indexes created successfully (8 indexes total)")
 	return nil
 }
 
-// runManualMigrations runs manual SQL migrations for complex schema changes
-func runManualMigrations(db *gorm.DB) error {
-	// Check if we need to run the participants table migration
-	var migrationExists bool
-	err := db.Raw(`
-		SELECT EXISTS (
-			SELECT 1 FROM information_schema.table_constraints
-			WHERE constraint_name = 'participants_user_check'
-		)
-	`).Scan(&migrationExists).Error
-	
-	if err != nil {
-		return fmt.Errorf("failed to check migration status: %w", err)
-	}
-	
-	if !migrationExists {
-		logrus.Info("Running participants table migration...")
-		
-		// Run the migration to allow NULL values in user_id and public_user_id
-		migrations := []string{
-			// Drop existing constraints if they exist
-			`ALTER TABLE participants DROP CONSTRAINT IF EXISTS participants_user_id_fkey`,
-			`ALTER TABLE participants DROP CONSTRAINT IF EXISTS participants_public_user_id_fkey`,
-			`ALTER TABLE participants DROP CONSTRAINT IF EXISTS participants_user_check`,
-			
-			// Alter columns to allow NULL values
-			`ALTER TABLE participants ALTER COLUMN user_id DROP NOT NULL`,
-			`ALTER TABLE participants ALTER COLUMN public_user_id DROP NOT NULL`,
-			
-			// Re-add foreign key constraints with ON DELETE SET NULL
-			`ALTER TABLE participants ADD CONSTRAINT participants_user_id_fkey
-			 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL`,
-			`ALTER TABLE participants ADD CONSTRAINT participants_public_user_id_fkey
-			 FOREIGN KEY (public_user_id) REFERENCES public_users(id) ON DELETE SET NULL`,
-			
-			// Add check constraint to ensure either user_id or public_user_id is set
-			`ALTER TABLE participants ADD CONSTRAINT participants_user_check
-			 CHECK (user_id IS NOT NULL OR public_user_id IS NOT NULL)`,
-		}
-		
-		for _, migration := range migrations {
-			if err := db.Exec(migration).Error; err != nil {
-				// Log the error but continue - some constraints might not exist
-				logrus.Warnf("Migration step failed (this might be expected): %v", err)
-			}
-		}
-		
-		logrus.Info("Participants table migration completed")
-	}
-	
-	return nil
-}
 
 // runSQLFileMigrations runs SQL migrations from files in the migrations directory
 func runSQLFileMigrations(db *gorm.DB) error {
@@ -198,7 +197,7 @@ func runSQLFileMigrations(db *gorm.DB) error {
 	}
 	
 	// Read all files in the migrations directory
-	files, err := ioutil.ReadDir(migrationsDir)
+	files, err := os.ReadDir(migrationsDir)
 	if err != nil {
 		return fmt.Errorf("failed to read migrations directory: %w", err)
 	}
@@ -243,7 +242,7 @@ func runSQLFileMigrations(db *gorm.DB) error {
 		
 		// Read the SQL file
 		filePath := filepath.Join(migrationsDir, filename)
-		sqlBytes, err := ioutil.ReadFile(filePath)
+		sqlBytes, err := os.ReadFile(filePath)
 		if err != nil {
 			return fmt.Errorf("failed to read migration file %s: %w", filename, err)
 		}

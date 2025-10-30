@@ -7,7 +7,6 @@
 	import type { Meeting, CreateMeetingRequest, AuthState, User } from '$types';
 
 	// State
-	let user: User | null = $state(null);
 	let meetings: Meeting[] = $state([]);
 	let loading: boolean = $state(true);
 	let error: string | null = $state(null);
@@ -15,17 +14,13 @@
 	let openMenuId: string | null = $state(null);
 	// Track if meetings have been loaded to prevent duplicate calls
 	let meetingsLoaded = $state(false);
-
+	
 	// Subscribe to auth store using onMount for proper lifecycle
 	import { onMount } from 'svelte';
 	
 	onMount(() => {
 		const unsubscribe = authStore.subscribe((state) => {
-			console.log('Auth state changed:', state);
-			
-			// Update user
-			user = state.user;
-			if(!user){
+			if(!state.user){
 				goto('/')
 			}
 			
@@ -37,6 +32,11 @@
 		});
 
 		return unsubscribe;
+	});
+	
+	// Reactive effect to monitor auth store changes
+	$effect(() => {
+		// Auth store changes are handled by the template reactivity
 	});
 
 	async function loadMeetings() {
@@ -104,7 +104,7 @@
 	<div class="fixed inset-0 z-40" onclick={closeMenu}></div>
 {/if}
 
-{#if !user}
+{#if !$authStore.user}
 	<div class="flex items-center justify-center min-h-screen">
 		<p>Please login to access dashboard</p>
 	</div>
@@ -112,8 +112,10 @@
 	<div class="flex items-center justify-between mb-6">
 		<h1 class="text-2xl font-semibold">Upcoming Meetings</h1>
 		<button
-			class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-accent text-accent-foreground hover:bg-accent/90 h-9 px-4 py-2"
-			onclick={() => isCreateMeetingOpen = true}
+			class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 bg-blue-600 text-white hover:bg-blue-700 h-9 px-4 py-2 shadow-md"
+			onclick={() => {
+				isCreateMeetingOpen = true;
+			}}
 		>
 			<PlusCircle class="mr-2 h-4 w-4" />
 			Create Meeting

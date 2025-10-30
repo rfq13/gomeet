@@ -6,20 +6,23 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
+	"github.com/filosofine/gomeet-backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 )
 
 type AuthController struct {
 	authService *services.AuthService
 	validator   *validator.Validate
+	customValidators *utils.CustomValidators
 }
 
 func NewAuthController(authService *services.AuthService) *AuthController {
+	customValidators := utils.NewCustomValidators()
 	return &AuthController{
 		authService: authService,
-		validator:   validator.New(),
+		validator:   customValidators.GetValidator(),
+		customValidators: customValidators,
 	}
 }
 
@@ -38,18 +41,18 @@ func NewAuthController(authService *services.AuthService) *AuthController {
 func (c *AuthController) Register(ctx *gin.Context) {
 	var req models.RegisterRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	response, err := c.authService.Register(&req)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusConflict, "AUTH_003", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusConflict, utils.AUTH_003, err.Error())
 		return
 	}
 
@@ -71,18 +74,18 @@ func (c *AuthController) Register(ctx *gin.Context) {
 func (c *AuthController) Login(ctx *gin.Context) {
 	var req models.LoginRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	response, err := c.authService.Login(&req)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusUnauthorized, "AUTH_001", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusUnauthorized, utils.AUTH_001, err.Error())
 		return
 	}
 
@@ -106,18 +109,18 @@ func (c *AuthController) RefreshToken(ctx *gin.Context) {
 	}
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	response, err := c.authService.RefreshToken(req.RefreshToken)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusUnauthorized, "AUTH_005", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusUnauthorized, utils.AUTH_005, err.Error())
 		return
 	}
 
@@ -137,13 +140,13 @@ func (c *AuthController) RefreshToken(ctx *gin.Context) {
 func (c *AuthController) GetMe(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	user, err := c.authService.GetUserByID(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusNotFound, "AUTH_002", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusNotFound, utils.AUTH_002, err.Error())
 		return
 	}
 
@@ -166,31 +169,31 @@ func (c *AuthController) GetMe(ctx *gin.Context) {
 func (c *AuthController) UpdatePassword(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	var req models.UpdatePasswordRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.authService.UpdatePassword(userID, &req); err != nil {
 		if err.Error() == "user not found" {
-			utils.SendErrorResponse(ctx, http.StatusNotFound, "AUTH_002", err.Error())
+			utils.HandleSendErrorResponse(ctx, http.StatusNotFound, utils.AUTH_002, err.Error())
 			return
 		}
 		if err.Error() == "current password is incorrect" {
-			utils.SendErrorResponse(ctx, http.StatusBadRequest, "AUTH_006", err.Error())
+			utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.AUTH_006, err.Error())
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
@@ -213,40 +216,97 @@ func (c *AuthController) UpdatePassword(ctx *gin.Context) {
 func (c *AuthController) UpdateProfile(ctx *gin.Context) {
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
+	// Set custom validators in context for detailed error handling
+	ctx.Set("customValidators", c.customValidators)
+
 	var req struct {
-		Username string `json:"username,omitempty" validate:"omitempty,min=2,max=255"`
-		Email    string `json:"email,omitempty" validate:"omitempty,email"`
+		Username string `json:"username,omitempty" validate:"omitempty,username"`
+		Email    string `json:"email,omitempty" validate:"omitempty,email_strong"`
 	}
 
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	// Validate that at least one field is provided
+	if req.Username == "" && req.Email == "" {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_002, "At least one field (username or email) must be provided")
 		return
 	}
 
 	response, err := c.authService.UpdateProfile(userID, req.Username, req.Email)
 	if err != nil {
 		if err.Error() == "user not found" {
-			utils.SendErrorResponse(ctx, http.StatusNotFound, "AUTH_002", err.Error())
+			utils.HandleSendErrorResponse(ctx, http.StatusNotFound, utils.AUTH_002, err.Error())
 			return
 		}
 		if err.Error() == "email is already taken" {
-			utils.SendErrorResponse(ctx, http.StatusConflict, "AUTH_003", err.Error())
+			utils.HandleSendErrorResponse(ctx, http.StatusConflict, utils.AUTH_003, err.Error())
 			return
 		}
-		utils.InternalServerErrorResponse(ctx, err.Error())
+		utils.HandleInternalServerErrorResponse(ctx, err.Error())
 		return
 	}
 
 	utils.SuccessResponse(ctx, http.StatusOK, response, "Profile updated successfully")
+}
+
+// CheckPasswordStrength handles password strength checking
+// @Summary Check password strength
+// @Description Check password strength with enhanced validation
+// @Tags auth
+// @Accept json
+// @Produce json
+// @Param request body map[string]string true "Password check request"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.ErrorResponse
+// @Router /api/auth/check-password-strength [post]
+func (c *AuthController) CheckPasswordStrength(ctx *gin.Context) {
+	var req struct {
+		Password string `json:"password" validate:"required"`
+		Username string `json:"username,omitempty"`
+	}
+
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	if err := c.validator.Struct(&req); err != nil {
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	// Get password strength details
+	score, warning, crackTime := c.customValidators.GetPasswordStrength(req.Password, req.Username)
+	
+	// Check if password meets enhanced policy
+	policyError := c.customValidators.ValidatePasswordWithUsername(req.Password, req.Username)
+	meetsPolicy := policyError == nil
+
+	response := gin.H{
+		"score":        score,
+		"warning":      warning,
+		"crackTime":    crackTime,
+		"meetsPolicy":  meetsPolicy,
+		"maxScore":     4,
+	}
+
+	if !meetsPolicy {
+		response["policyError"] = policyError.Error()
+	}
+
+	utils.SuccessResponse(ctx, http.StatusOK, response, "Password strength checked successfully")
 }
 
 // Logout handles user logout

@@ -1,7 +1,9 @@
 package models
 
 import (
+	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -166,7 +168,7 @@ func (h *WebSocketHub) Run() {
 
 // registerClient adds a new client to the hub
 func (h *WebSocketHub) registerClient(client *WebSocketClient) {
-	log.Printf("[DEBUG] Registering client: %s (name: %s) to meeting: %s", client.ID, client.Name, client.MeetingID)
+	log.Printf("[DEBUG] Registering client: %s (name: %s, auth: %t) to meeting: %s", client.ID, client.Name, client.IsAuth, client.MeetingID)
 	
 	// VALIDASI DUPLICATE CLIENT
 	if existingClient, exists := h.Clients[client.ID]; exists {
@@ -185,6 +187,20 @@ func (h *WebSocketHub) registerClient(client *WebSocketClient) {
 	h.Meetings[client.MeetingID][client.ID] = client
 	log.Printf("[DEBUG] Added client to meeting. Total clients in meeting %s: %d", client.MeetingID, len(h.Meetings[client.MeetingID]))
 	
+	// FIXED: Ensure we never send "Anonymous User" - validate name before broadcasting
+	displayName := client.Name
+	if displayName == "" || displayName == "Anonymous User" {
+		// Generate fallback name based on client ID
+		if strings.HasPrefix(client.ID, "user_") {
+			displayName = fmt.Sprintf("User %s", client.ID[5:8])
+		} else if strings.HasPrefix(client.ID, "public_") {
+			displayName = fmt.Sprintf("Guest %s", client.ID[7:11])
+		} else {
+			displayName = fmt.Sprintf("Participant %s", client.ID[len(client.ID)-4:])
+		}
+		log.Printf("[DEBUG] Fixed empty/Anonymous name for client %s: %s -> %s", client.ID, client.Name, displayName)
+	}
+	
 	// Notify other participants about new join
 	joinMessage := SignalingMessage{
 		Type:      SignalingTypeParticipantJoined,
@@ -192,14 +208,14 @@ func (h *WebSocketHub) registerClient(client *WebSocketClient) {
 		From:      client.ID,
 		Data: JoinPayload{
 			ParticipantID:   client.ID,
-			Name:            client.Name,
+			Name:            displayName, // Use validated display name
 			AvatarURL:       "", // Will be populated from user data
 			IsAuthenticated: client.IsAuth,
 		},
 		Timestamp: time.Now(),
 	}
 	
-	log.Printf("[DEBUG] Broadcasting participant-joined message for: %s to meeting: %s", client.ID, client.MeetingID)
+	log.Printf("[DEBUG] Broadcasting participant-joined message for: %s (name: %s) to meeting: %s", client.ID, displayName, client.MeetingID)
 	h.broadcastToMeeting(client.MeetingID, joinMessage, client.ID)
 }
 

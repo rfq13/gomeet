@@ -8,11 +8,13 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/cache"
+	"github.com/filosofine/gomeet-backend/internal/models"
 )
 
 type MeetingService struct {
-	db *gorm.DB
+	db        *gorm.DB
+	cacheRepo *cache.CacheRepository
 }
 
 type MeetingListResponse struct {
@@ -20,9 +22,10 @@ type MeetingListResponse struct {
 	Pagination models.PaginationInfo    `json:"pagination"`
 }
 
-func NewMeetingService(db *gorm.DB) *MeetingService {
+func NewMeetingService(db *gorm.DB, cacheRepo *cache.CacheRepository) *MeetingService {
 	return &MeetingService{
-		db: db,
+		db:        db,
+		cacheRepo: cacheRepo,
 	}
 }
 
@@ -77,6 +80,27 @@ func (s *MeetingService) CreateMeeting(hostID uuid.UUID, req *models.CreateMeeti
 }
 
 func (s *MeetingService) GetMeetings(hostID uuid.UUID, page, limit int, search string) (*MeetingListResponse, error) {
+	// Try to get from cache first
+	cacheKey := s.cacheRepo.GenerateMeetingListKey(hostID.String(), page, limit, search)
+	meetingListResponse, found, err := s.cacheRepo.GetMeetingList(cacheKey)
+	if err != nil {
+		fmt.Printf("Cache error: %v\n", err)
+	}
+	
+	if found {
+		// Convert models.MeetingListResponse to MeetingListResponse
+		meetingResponses := make([]models.MeetingResponse, len(meetingListResponse.Meetings))
+		for i, meeting := range meetingListResponse.Meetings {
+			meetingResponses[i] = meeting
+		}
+		
+		return &MeetingListResponse{
+			Meetings: meetingResponses,
+			Pagination: meetingListResponse.Pagination,
+		}, nil
+	}
+
+	// Cache miss, get from database
 	var meetings []models.Meeting
 	var total int64
 
@@ -111,7 +135,7 @@ func (s *MeetingService) GetMeetings(hostID uuid.UUID, page, limit int, search s
 		meetingResponses[i] = meeting.ToResponse()
 	}
 
-	return &MeetingListResponse{
+	response := &MeetingListResponse{
 		Meetings: meetingResponses,
 		Pagination: models.PaginationInfo{
 			Page:       page,
@@ -119,10 +143,46 @@ func (s *MeetingService) GetMeetings(hostID uuid.UUID, page, limit int, search s
 			Total:      int(total),
 			TotalPages: totalPages,
 		},
-	}, nil
+	}
+
+	// Cache the response - convert to models.MeetingListResponse for caching
+	modelsResponse := &models.MeetingListResponse{
+		Meetings: response.Meetings,
+		Pagination: response.Pagination,
+	}
+	if err := s.cacheRepo.SetMeetingList(cacheKey, modelsResponse); err != nil {
+		fmt.Printf("Failed to cache meeting list: %v\n", err)
+	}
+
+	return response, nil
 }
 
 func (s *MeetingService) GetMeetingByID(meetingID uuid.UUID, userID uuid.UUID) (*models.Meeting, error) {
+	// Try to get from cache first
+	meetingResponse, found, err := s.cacheRepo.GetMeetingDetails(meetingID.String())
+	if err != nil {
+		fmt.Printf("Cache error: %v\n", err)
+	}
+	
+	if found {
+		// Check if user is the host
+		if meetingResponse.HostID != userID {
+			return nil, errors.New("unauthorized access to meeting")
+		}
+		
+		// Convert response back to model (simplified conversion)
+		meeting := &models.Meeting{
+			ID:        meetingResponse.ID,
+			Name:      meetingResponse.Name,
+			StartTime: meetingResponse.StartTime,
+			HostID:    meetingResponse.HostID,
+			IsActive:  meetingResponse.IsActive,
+			CreatedAt: meetingResponse.CreatedAt,
+		}
+		return meeting, nil
+	}
+
+	// Cache miss, get from database
 	var meeting models.Meeting
 
 	// Fetch meeting with relationships
@@ -140,10 +200,36 @@ func (s *MeetingService) GetMeetingByID(meetingID uuid.UUID, userID uuid.UUID) (
 		return nil, errors.New("unauthorized access to meeting")
 	}
 
+	// Cache the meeting response
+	meetingResponseCache := meeting.ToResponse()
+	if err := s.cacheRepo.SetMeetingDetails(meetingID.String(), &meetingResponseCache); err != nil {
+		fmt.Printf("Failed to cache meeting details: %v\n", err)
+	}
+
 	return &meeting, nil
 }
 
 func (s *MeetingService) GetMeetingByIDPublic(meetingID uuid.UUID) (*models.Meeting, error) {
+	// Try to get from cache first
+	meetingResponse, found, err := s.cacheRepo.GetMeetingDetails(meetingID.String())
+	if err != nil {
+		fmt.Printf("Cache error: %v\n", err)
+	}
+	
+	if found {
+		// Convert response back to model (simplified conversion)
+		meeting := &models.Meeting{
+			ID:        meetingResponse.ID,
+			Name:      meetingResponse.Name,
+			StartTime: meetingResponse.StartTime,
+			HostID:    meetingResponse.HostID,
+			IsActive:  meetingResponse.IsActive,
+			CreatedAt: meetingResponse.CreatedAt,
+		}
+		return meeting, nil
+	}
+
+	// Cache miss, get from database
 	var meeting models.Meeting
 
 	// Fetch meeting with relationships (public access)
@@ -154,6 +240,12 @@ func (s *MeetingService) GetMeetingByIDPublic(meetingID uuid.UUID) (*models.Meet
 			return nil, errors.New("meeting not found")
 		}
 		return nil, fmt.Errorf("failed to fetch meeting: %w", err)
+	}
+
+	// Cache the meeting response
+	meetingResponseCache := meeting.ToResponse()
+	if err := s.cacheRepo.SetMeetingDetails(meetingID.String(), &meetingResponseCache); err != nil {
+		fmt.Printf("Failed to cache meeting details: %v\n", err)
 	}
 
 	return &meeting, nil
@@ -218,6 +310,11 @@ func (s *MeetingService) UpdateMeeting(meetingID uuid.UUID, userID uuid.UUID, re
 	// Commit transaction
 	if err := tx.Commit().Error; err != nil {
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Invalidate meeting-related cache
+	if err := s.cacheRepo.InvalidateMeetingRelated(meetingID.String()); err != nil {
+		fmt.Printf("Failed to invalidate meeting-related cache: %v\n", err)
 	}
 
 	// Fetch updated meeting with relationships
@@ -338,6 +435,11 @@ func (s *MeetingService) JoinMeeting(userID uuid.UUID, meetingID uuid.UUID) (*mo
 		return nil, fmt.Errorf("failed to join meeting: %w", err)
 	}
 
+	// Invalidate participant list cache
+	if err := s.cacheRepo.InvalidateParticipantList(meetingID.String()); err != nil {
+		fmt.Printf("Failed to invalidate participant list cache: %v\n", err)
+	}
+
 	return participant, nil
 }
 
@@ -359,10 +461,40 @@ func (s *MeetingService) LeaveMeeting(userID uuid.UUID, meetingID uuid.UUID) err
 		return fmt.Errorf("failed to leave meeting: %w", err)
 	}
 
+	// Invalidate participant list cache
+	if err := s.cacheRepo.InvalidateParticipantList(meetingID.String()); err != nil {
+		fmt.Printf("Failed to invalidate participant list cache: %v\n", err)
+	}
+
 	return nil
 }
 
 func (s *MeetingService) GetMeetingParticipants(meetingID uuid.UUID, userID uuid.UUID) ([]models.Participant, error) {
+	// Try to get from cache first
+	participantResponses, found, err := s.cacheRepo.GetParticipantList(meetingID.String())
+	if err != nil {
+		fmt.Printf("Cache error: %v\n", err)
+	}
+	
+	if found {
+		// Convert responses back to models (simplified conversion)
+		participants := make([]models.Participant, len(participantResponses))
+		for i, resp := range participantResponses {
+			participants[i] = models.Participant{
+				ID:           resp.ID,
+				UserID:       resp.UserID,
+				PublicUserID: resp.PublicUserID,
+				Name:         resp.Name,
+				AvatarURL:    resp.AvatarURL,
+				IsActive:     resp.IsActive,
+				JoinedAt:     resp.JoinedAt,
+				LeftAt:       resp.LeftAt,
+			}
+		}
+		return participants, nil
+	}
+
+	// Cache miss, get from database
 	// Check if meeting exists and user has access (either host or participant)
 	var meeting models.Meeting
 	if err := s.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
@@ -386,6 +518,16 @@ func (s *MeetingService) GetMeetingParticipants(meetingID uuid.UUID, userID uuid
 		Order("joined_at ASC").
 		Find(&participants).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch participants: %w", err)
+	}
+
+	// Cache the participant responses
+	participantResponses = make([]models.ParticipantResponse, len(participants))
+	for i, participant := range participants {
+		participantResponses[i] = participant.ToResponse()
+	}
+	
+	if err := s.cacheRepo.SetParticipantList(meetingID.String(), participantResponses); err != nil {
+		fmt.Printf("Failed to cache participant list: %v\n", err)
 	}
 
 	return participants, nil

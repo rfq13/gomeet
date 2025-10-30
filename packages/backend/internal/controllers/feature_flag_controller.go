@@ -3,10 +3,10 @@ package controllers
 import (
 	"net/http"
 
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
 )
 
 type FeatureFlagController struct {
@@ -39,7 +39,7 @@ func (c *FeatureFlagController) GetFeatureConfig(ctx *gin.Context) {
 	config, err := c.featureFlagService.GetFeatureConfig()
 	if err != nil {
 		c.logger.WithError(err).Error("Failed to get feature config")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get feature configuration")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to get feature configuration")
 		return
 	}
 
@@ -51,7 +51,7 @@ func (c *FeatureFlagController) GetAllFlags(ctx *gin.Context) {
 	flags, err := c.featureFlagService.GetAllFlags()
 	if err != nil {
 		c.logger.WithError(err).Error("Failed to get all flags")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get feature flags")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to get feature flags")
 		return
 	}
 
@@ -63,13 +63,13 @@ func (c *FeatureFlagController) SetFlag(ctx *gin.Context) {
 	var req SetFlagRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		c.logger.WithError(err).Error("Invalid request body")
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_ERROR, "Invalid request body")
 		return
 	}
 
 	if err := c.featureFlagService.SetFlag(req.FlagName, req.Enabled); err != nil {
 		c.logger.WithError(err).WithField("flag", req.FlagName).Error("Failed to set feature flag")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to set feature flag")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to set feature flag")
 		return
 	}
 
@@ -89,14 +89,14 @@ func (c *FeatureFlagController) SetFlag(ctx *gin.Context) {
 func (c *FeatureFlagController) IsFlagEnabled(ctx *gin.Context) {
 	flagName := ctx.Param("flag")
 	if flagName == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "VALIDATION_ERROR", "Flag name is required")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_ERROR, "Flag name is required")
 		return
 	}
 
 	enabled, err := c.featureFlagService.IsFlagEnabled(flagName)
 	if err != nil {
 		c.logger.WithError(err).WithField("flag", flagName).Error("Failed to check feature flag")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check feature flag")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to check feature flag")
 		return
 	}
 
@@ -112,13 +112,13 @@ func (c *FeatureFlagController) EnableLiveKitForMeeting(ctx *gin.Context) {
 	var req MeetingFlagRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		c.logger.WithError(err).Error("Invalid request body")
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_ERROR, "Invalid request body")
 		return
 	}
 
 	if err := c.featureFlagService.EnableLiveKitForMeeting(req.MeetingID); err != nil {
 		c.logger.WithError(err).WithField("meeting_id", req.MeetingID).Error("Failed to enable LiveKit for meeting")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to enable LiveKit for meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to enable LiveKit for meeting")
 		return
 	}
 
@@ -135,13 +135,13 @@ func (c *FeatureFlagController) EnableLiveKitForMeeting(ctx *gin.Context) {
 func (c *FeatureFlagController) DisableLiveKitForMeeting(ctx *gin.Context) {
 	meetingID := ctx.Param("meetingId")
 	if meetingID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "VALIDATION_ERROR", "Meeting ID is required")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_ERROR, "Meeting ID is required")
 		return
 	}
 
 	if err := c.featureFlagService.DisableLiveKitForMeeting(meetingID); err != nil {
 		c.logger.WithError(err).WithField("meeting_id", meetingID).Error("Failed to disable LiveKit for meeting")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to disable LiveKit for meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to disable LiveKit for meeting")
 		return
 	}
 
@@ -158,14 +158,14 @@ func (c *FeatureFlagController) DisableLiveKitForMeeting(ctx *gin.Context) {
 func (c *FeatureFlagController) ShouldUseLiveKitForMeeting(ctx *gin.Context) {
 	meetingID := ctx.Param("meetingId")
 	if meetingID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "VALIDATION_ERROR", "Meeting ID is required")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_ERROR, "Meeting ID is required")
 		return
 	}
 
 	shouldUse, err := c.featureFlagService.ShouldUseLiveKitForMeeting(meetingID)
 	if err != nil {
 		c.logger.WithError(err).WithField("meeting_id", meetingID).Error("Failed to check LiveKit setting for meeting")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to check LiveKit setting for meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to check LiveKit setting for meeting")
 		return
 	}
 
@@ -182,7 +182,7 @@ func (c *FeatureFlagController) GetMigrationStats(ctx *gin.Context) {
 	stats, err := c.featureFlagService.GetMigrationStats()
 	if err != nil {
 		c.logger.WithError(err).Error("Failed to get migration stats")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get migration statistics")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to get migration statistics")
 		return
 	}
 
@@ -193,7 +193,7 @@ func (c *FeatureFlagController) GetMigrationStats(ctx *gin.Context) {
 func (c *FeatureFlagController) CleanupExpiredFlags(ctx *gin.Context) {
 	if err := c.featureFlagService.CleanupExpiredFlags(); err != nil {
 		c.logger.WithError(err).Error("Failed to cleanup expired flags")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to cleanup expired flags")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to cleanup expired flags")
 		return
 	}
 
@@ -205,7 +205,7 @@ func (c *FeatureFlagController) GetMigrationPhase(ctx *gin.Context) {
 	config, err := c.featureFlagService.GetFeatureConfig()
 	if err != nil {
 		c.logger.WithError(err).Error("Failed to get feature config for migration phase")
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get migration phase")
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.INTERNAL_ERROR, "Failed to get migration phase")
 		return
 	}
 
@@ -226,7 +226,7 @@ func (c *FeatureFlagController) BatchSetFlags(ctx *gin.Context) {
 	var requests []SetFlagRequest
 	if err := ctx.ShouldBindJSON(&requests); err != nil {
 		c.logger.WithError(err).Error("Invalid request body")
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.VALIDATION_ERROR, "Invalid request body")
 		return
 	}
 

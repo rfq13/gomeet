@@ -37,6 +37,16 @@ go.sum
 .env.development.local
 .env.test.local
 .env.production.local
+.env.staging
+.env.*
+
+# Security files
+creds.txt
+secrets/
+*.secret
+*.token
+credentials.json
+service-account.json
 
 # IDE
 .vscode/

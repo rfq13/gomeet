@@ -8,7 +8,7 @@ import (
 )
 
 type Participant struct {
-	ID           uuid.UUID   `gorm:"type:uuid;primary_key" json:"id"`
+	ID           uuid.UUID   `gorm:"type:uuid;primaryKey" json:"id"`
 	MeetingID    uuid.UUID   `gorm:"type:uuid;not null" json:"meetingId"`
 	UserID       *uuid.UUID  `gorm:"type:uuid;default:null" json:"userId"` // Nullable for public users
 	PublicUserID *uuid.UUID  `gorm:"type:uuid;default:null" json:"publicUserId"` // Nullable for authenticated users

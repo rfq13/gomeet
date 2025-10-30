@@ -4,6 +4,7 @@
 
 	let user: User | null = $state(null);
 	let loading: boolean = $state(true);
+	let isDropdownOpen: boolean = $state(false);
 
 	// Subscribe to auth store changes
 	$effect(() => {
@@ -24,6 +25,14 @@
 			goto('/');
 		}
 	};
+
+	function toggleDropdown() {
+		isDropdownOpen = !isDropdownOpen;
+	}
+
+	function closeDropdown() {
+		isDropdownOpen = false;
+	}
 </script>
 
 {#if loading}
@@ -36,8 +45,16 @@
 		Login
 	</button>
 {:else}
+	<!-- Backdrop to close dropdown -->
+	{#if isDropdownOpen}
+		<div class="fixed inset-0 z-40" onclick={closeDropdown}></div>
+	{/if}
+	
 	<div class="relative">
-		<button class="inline-flex items-center justify-center rounded-full h-8 w-8 bg-muted hover:bg-accent transition-colors">
+		<button
+			onclick={toggleDropdown}
+			class="inline-flex items-center justify-center rounded-full h-8 w-8 bg-muted hover:bg-accent transition-colors"
+		>
 			<div class="relative h-9 w-9 rounded-full">
 				<div class="flex h-full w-full items-center justify-center rounded-full bg-muted">
 					{user.email?.charAt(0).toUpperCase() || 'U'}
@@ -45,19 +62,21 @@
 			</div>
 		</button>
 		
-		<!-- Dropdown menu - simplified for now -->
-		<div class="absolute right-0 mt-2 w-56 rounded-md bg-popover p-1 text-popover-foreground shadow-md">
-			<div class="px-2 py-1.5 text-sm">
-				<div class="font-medium">{user.username || 'User'}</div>
-				<div class="text-muted-foreground text-xs">{user.email}</div>
+		<!-- Dropdown menu -->
+		{#if isDropdownOpen}
+			<div class="absolute right-0 mt-2 w-56 rounded-md bg-popover p-1 text-popover-foreground shadow-md z-50">
+				<div class="px-2 py-1.5 text-sm">
+					<div class="font-medium">{user.username || 'User'}</div>
+					<div class="text-muted-foreground text-xs">{user.email}</div>
+				</div>
+				<hr class="my-1 border-border" />
+				<button
+					onclick={handleLogout}
+					class="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground w-full text-left"
+				>
+					Logout
+				</button>
 			</div>
-			<hr class="my-1 border-border" />
-			<button
-				onclick={handleLogout}
-				class="relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground w-full text-left"
-			>
-				Logout
-			</button>
-		</div>
+		{/if}
 	</div>
 {/if}

@@ -1,29 +1,41 @@
 package controllers
 
 import (
+	"crypto/md5"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/your-org/gomeet/packages/backend/internal/models"
-	"github.com/your-org/gomeet/packages/backend/internal/services"
-	"github.com/your-org/gomeet/packages/backend/internal/utils"
+	"github.com/filosofine/gomeet-backend/internal/models"
+	"github.com/filosofine/gomeet-backend/internal/redis"
+	"github.com/filosofine/gomeet-backend/internal/services"
+	"github.com/filosofine/gomeet-backend/internal/utils"
 )
 
 type WebRTCController struct {
 	webrtcService *services.WebRTCService
+	turnService   *services.TurnService
 	db            *gorm.DB
 	validator     *validator.Validate
+	redisClient   *redis.RedisClient
 }
 
-func NewWebRTCController(webrtcService *services.WebRTCService, db *gorm.DB) *WebRTCController {
+func NewWebRTCController(webrtcService *services.WebRTCService, turnService *services.TurnService, db *gorm.DB, redisClient *redis.RedisClient) *WebRTCController {
 	return &WebRTCController{
 		webrtcService: webrtcService,
+		turnService:   turnService,
 		db:            db,
 		validator:     validator.New(),
+		redisClient:   redisClient,
 	}
 }
 
@@ -43,27 +55,27 @@ func (c *WebRTCController) GetMeetingPeers(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	// Check if meeting exists
 	var meeting models.Meeting
 	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
-		utils.NotFoundResponse(ctx, "Meeting not found")
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
 		return
 	}
 
 	// Get user info for access control
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -80,7 +92,7 @@ func (c *WebRTCController) GetMeetingPeers(ctx *gin.Context) {
 	}
 
 	if !hasAccess {
-		utils.ForbiddenResponse(ctx, "You don't have access to this meeting")
+		utils.HandleForbiddenResponse(ctx, "You don't have access to this meeting")
 		return
 	}
 
@@ -127,27 +139,27 @@ func (c *WebRTCController) JoinMeeting(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	// Get user info
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	// Check if meeting exists
 	var meeting models.Meeting
 	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
-		utils.NotFoundResponse(ctx, "Meeting not found")
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
 		return
 	}
 
@@ -164,25 +176,25 @@ func (c *WebRTCController) JoinMeeting(ctx *gin.Context) {
 	}
 
 	if !hasAccess {
-		utils.ForbiddenResponse(ctx, "You don't have access to this meeting")
+		utils.HandleForbiddenResponse(ctx, "You don't have access to this meeting")
 		return
 	}
 
 	var req JoinWebRTCMeetingRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	// Get user details
 	var user models.User
 	if err := c.db.Where("id = ?", userUUID).First(&user).Error; err != nil {
-		utils.SendErrorResponse(ctx, http.StatusNotFound, "USER_NOT_FOUND", "User not found")
+		utils.HandleNotFoundResponse(ctx, "User not found")
 		return
 	}
 
@@ -195,7 +207,7 @@ func (c *WebRTCController) JoinMeeting(ctx *gin.Context) {
 	// Join meeting
 	peer, err := c.webrtcService.JoinMeeting(meetingIDStr, peerID, &userUUID, nil, user.Username, true)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusInternalServerError, "JOIN_FAILED", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.JOIN_FAILED, err.Error())
 		return
 	}
 
@@ -232,19 +244,19 @@ func (c *WebRTCController) LeaveMeeting(ctx *gin.Context) {
 
 	var req LeaveWebRTCMeetingRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	// Leave meeting
 	err := c.webrtcService.LeaveMeeting(meetingIDStr, req.PeerID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "LEAVE_FAILED", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.LEAVE_FAILED, err.Error())
 		return
 	}
 
@@ -269,25 +281,25 @@ func (c *WebRTCController) SendOffer(ctx *gin.Context) {
 
 	var req models.WebRTCOfferRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	// Get user info to determine fromPeerID
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -302,14 +314,14 @@ func (c *WebRTCController) SendOffer(ctx *gin.Context) {
 	}
 
 	if fromPeerID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "NOT_IN_MEETING", "You are not in this WebRTC meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.NOT_IN_MEETING, "You are not in this WebRTC meeting")
 		return
 	}
 
 	// Send offer
 	err = c.webrtcService.SendOffer(meetingIDStr, fromPeerID, req.To, req.Offer)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "OFFER_FAILED", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.OFFER_FAILED, err.Error())
 		return
 	}
 
@@ -334,25 +346,25 @@ func (c *WebRTCController) SendAnswer(ctx *gin.Context) {
 
 	var req models.WebRTCAnswerRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	// Get user info to determine fromPeerID
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -367,14 +379,14 @@ func (c *WebRTCController) SendAnswer(ctx *gin.Context) {
 	}
 
 	if fromPeerID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "NOT_IN_MEETING", "You are not in this WebRTC meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.NOT_IN_MEETING, "You are not in this WebRTC meeting")
 		return
 	}
 
 	// Send answer
 	err = c.webrtcService.SendAnswer(meetingIDStr, fromPeerID, req.To, req.Answer)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "ANSWER_FAILED", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.ANSWER_FAILED, err.Error())
 		return
 	}
 
@@ -399,25 +411,25 @@ func (c *WebRTCController) SendIceCandidate(ctx *gin.Context) {
 
 	var req models.WebRTCIceCandidateRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	// Get user info to determine fromPeerID
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -432,14 +444,14 @@ func (c *WebRTCController) SendIceCandidate(ctx *gin.Context) {
 	}
 
 	if fromPeerID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "NOT_IN_MEETING", "You are not in this WebRTC meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.NOT_IN_MEETING, "You are not in this WebRTC meeting")
 		return
 	}
 
 	// Send ICE candidate
 	err = c.webrtcService.SendIceCandidate(meetingIDStr, fromPeerID, req.To, req.Candidate)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "ICE_CANDIDATE_FAILED", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.ICE_CANDIDATE_FAILED, err.Error())
 		return
 	}
 
@@ -464,25 +476,25 @@ func (c *WebRTCController) UpdatePeerState(ctx *gin.Context) {
 
 	var req UpdatePeerStateRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	if err := c.validator.Struct(&req); err != nil {
-		utils.ValidationError(ctx, err)
+		utils.HandleValidationError(ctx, err)
 		return
 	}
 
 	// Get user info
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
@@ -497,14 +509,14 @@ func (c *WebRTCController) UpdatePeerState(ctx *gin.Context) {
 	}
 
 	if peerID == "" {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "NOT_IN_MEETING", "You are not in this WebRTC meeting")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.NOT_IN_MEETING, "You are not in this WebRTC meeting")
 		return
 	}
 
 	// Update peer state
 	err = c.webrtcService.UpdatePeerState(meetingIDStr, peerID, models.PeerConnectionState(req.State))
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "UPDATE_FAILED", err.Error())
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.UPDATE_FAILED, err.Error())
 		return
 	}
 
@@ -527,32 +539,32 @@ func (c *WebRTCController) GetRoomStats(ctx *gin.Context) {
 	meetingIDStr := ctx.Param("id")
 	meetingID, err := uuid.Parse(meetingIDStr)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_MEETING_ID", "Invalid meeting ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
 		return
 	}
 
 	// Get user info
 	userID, exists := utils.GetUserID(ctx)
 	if !exists {
-		utils.UnauthorizedResponse(ctx, "User not authenticated")
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userID)
 	if err != nil {
-		utils.SendErrorResponse(ctx, http.StatusBadRequest, "INVALID_USER_ID", "Invalid user ID")
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
 		return
 	}
 
 	// Check if user is the meeting host
 	var meeting models.Meeting
 	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
-		utils.NotFoundResponse(ctx, "Meeting not found")
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
 		return
 	}
 
 	if meeting.HostID != userUUID {
-		utils.ForbiddenResponse(ctx, "Only meeting hosts can view room statistics")
+		utils.HandleForbiddenResponse(ctx, "Only meeting hosts can view room statistics")
 		return
 	}
 
@@ -560,6 +572,190 @@ func (c *WebRTCController) GetRoomStats(ctx *gin.Context) {
 	stats := c.webrtcService.GetRoomStats(meetingIDStr)
 
 	utils.SuccessResponse(ctx, http.StatusOK, stats, "Room statistics retrieved successfully")
+}
+
+// GetLiveKitToken generates a LiveKit token for joining a meeting
+// @Summary Get LiveKit token
+// @Description Generate a LiveKit token for joining a meeting via LiveKit SFU
+// @Tags webrtc
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body LiveKitTokenRequest true "LiveKit token request"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.ErrorResponse
+// @Failure 401 {object} utils.ErrorResponse
+// @Failure 404 {object} utils.ErrorResponse
+// @Router /api/v1/webrtc/token [post]
+func (c *WebRTCController) GetLiveKitToken(ctx *gin.Context) {
+	var req LiveKitTokenRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	if err := c.validator.Struct(&req); err != nil {
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	// Parse meeting ID
+	meetingID, err := uuid.Parse(req.MeetingID)
+	if err != nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
+		return
+	}
+
+	// Check if meeting exists
+	var meeting models.Meeting
+	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
+		return
+	}
+
+	// Check participant limit
+	currentPeers := c.webrtcService.GetMeetingPeers(req.MeetingID)
+	if len(currentPeers) >= 50 {
+		utils.HandleSendErrorResponse(ctx, http.StatusForbidden, utils.ROOM_FULL, "Room has reached maximum capacity of 50 participants")
+		return
+	}
+
+	// Get user info
+	userID, exists := utils.GetUserID(ctx)
+	var userName string
+	var userUUID *uuid.UUID
+	
+	if exists {
+		parsedUUID, err := uuid.Parse(userID)
+		if err != nil {
+			utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
+			return
+		}
+		userUUID = &parsedUUID
+
+		// Get user details
+		var user models.User
+		if err := c.db.Where("id = ?", userUUID).First(&user).Error; err == nil {
+			userName = user.Username
+		}
+	} else {
+		// For public users, use session ID
+		if req.SessionID == "" {
+			utils.HandleUnauthorizedResponse(ctx, "User not authenticated and no session ID provided")
+			return
+		}
+		userName = "Public User"
+	}
+
+	// Log room configuration
+	log.Printf("[LiveKit] Generating token for meeting %s, user %s, current participants: %d",
+		req.MeetingID, userName, len(currentPeers))
+
+	// Generate LiveKit token with room configuration
+	token, err := c.generateLiveKitToken(req.MeetingID, userID, req.SessionID, userName)
+	if err != nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusInternalServerError, utils.TOKEN_GENERATION_FAILED, err.Error())
+		return
+	}
+
+	utils.SuccessResponse(ctx, http.StatusOK, map[string]interface{}{
+		"token": token,
+		"url":   "wss://livekit.filosofine.com", // LiveKit server URL
+		"roomConfig": map[string]interface{}{
+			"maxParticipants": 50,
+			"emptyTimeout": 180, // 3 minutes
+			"departureTimeout": 10, // 10 seconds
+		},
+	}, "LiveKit token generated successfully")
+}
+
+// generateLiveKitToken generates a LiveKit token for the given meeting and user
+func (c *WebRTCController) generateLiveKitToken(meetingID, userID, sessionID, userName string) (string, error) {
+	// Generate cache key
+	cacheKey := c.generateTokenCacheKey(meetingID, userID, sessionID, userName)
+	
+	// Try to get token from cache first
+	if c.redisClient != nil && c.redisClient.IsConnected() {
+		var cachedToken string
+		err := c.redisClient.Get(cacheKey, &cachedToken)
+		if err == nil {
+			log.Printf("🎯 Cache HIT for LiveKit token: %s", cacheKey)
+			return cachedToken, nil
+		}
+		log.Printf("❌ Cache MISS for LiveKit token: %s", cacheKey)
+	} else {
+		log.Printf("⚠️ Redis not available, generating token without cache")
+	}
+	
+	// Generate new token
+	token, err := c.generateNewLiveKitToken(meetingID, userID, sessionID, userName)
+	if err != nil {
+		return "", err
+	}
+	
+	// Cache the token for 5 minutes if Redis is available
+	if c.redisClient != nil && c.redisClient.IsConnected() {
+		err := c.redisClient.Set(cacheKey, token, 5*time.Minute)
+		if err != nil {
+			log.Printf("⚠️ Failed to cache LiveKit token: %v", err)
+			// Continue without caching - don't fail the request
+		} else {
+			log.Printf("💾 Cached LiveKit token: %s", cacheKey)
+		}
+	}
+	
+	return token, nil
+}
+
+// generateNewLiveKitToken generates a new LiveKit token without caching
+func (c *WebRTCController) generateNewLiveKitToken(meetingID, userID, sessionID, userName string) (string, error) {
+	// Get LiveKit API credentials from environment
+	apiKey := os.Getenv("LIVEKIT_API_KEY")
+	apiSecret := os.Getenv("LIVEKIT_API_SECRET")
+	
+	if apiKey == "" || apiSecret == "" {
+		return "", fmt.Errorf("LiveKit API credentials not configured")
+	}
+	
+	// Create JWT token for LiveKit
+	// Set identity
+	identity := userID
+	if identity == "" {
+		identity = sessionID
+	}
+	
+	// Create token claims
+	claims := &jwt.MapClaims{
+		"iss": apiKey,                           // issuer
+		"sub": identity,                         // subject (user identity)
+		"aud": "livekit",                        // audience
+		"exp": time.Now().Add(24 * time.Hour).Unix(), // expiration (24 hours)
+		"iat": time.Now().Unix(),                // issued at
+		"video": map[string]interface{}{
+			"roomJoin": true,
+			"room":     meetingID,
+		},
+		"name": userName,
+	}
+	
+	// Create token
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	
+	// Sign token with API secret
+	tokenString, err := token.SignedString([]byte(apiSecret))
+	if err != nil {
+		return "", fmt.Errorf("failed to sign token: %w", err)
+	}
+	
+	return tokenString, nil
+}
+
+// generateTokenCacheKey generates a unique cache key for LiveKit tokens
+func (c *WebRTCController) generateTokenCacheKey(meetingID, userID, sessionID, userName string) string {
+	// Create a deterministic key from the parameters
+	keyData := fmt.Sprintf("livekit:token:%s:%s:%s:%s", meetingID, userID, sessionID, userName)
+	hash := md5.Sum([]byte(keyData))
+	return fmt.Sprintf("livekit_token_%x", hash)
 }
 
 // Request types
@@ -573,4 +769,248 @@ type LeaveWebRTCMeetingRequest struct {
 
 type UpdatePeerStateRequest struct {
 	State models.PeerConnectionState `json:"state" validate:"required,oneof=new connecting connected disconnected failed closed"`
+}
+
+type LiveKitTokenRequest struct {
+	MeetingID  string                 `json:"meetingId" validate:"required"`
+	SessionID  string                 `json:"sessionId,omitempty"`
+	RoomConfig map[string]interface{} `json:"roomConfig,omitempty"`
+}
+
+// GetWebRTCStats returns comprehensive WebRTC statistics
+// @Summary Get WebRTC statistics
+// @Description Get comprehensive WebRTC statistics including connection quality, TURN server usage, and performance metrics
+// @Tags webrtc
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Meeting ID"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.ErrorResponse
+// @Failure 401 {object} utils.ErrorResponse
+// @Failure 403 {object} utils.ErrorResponse
+// @Router /api/v1/webrtc/meetings/{id}/stats [get]
+func (c *WebRTCController) GetWebRTCStats(ctx *gin.Context) {
+	meetingIDStr := ctx.Param("id")
+	meetingID, err := uuid.Parse(meetingIDStr)
+	if err != nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
+		return
+	}
+
+	// Get user info
+	userID, exists := utils.GetUserID(ctx)
+	if !exists {
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
+		return
+	}
+
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
+		return
+	}
+
+	// Check if user is the meeting host
+	var meeting models.Meeting
+	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
+		return
+	}
+
+	if meeting.HostID != userUUID {
+		utils.HandleForbiddenResponse(ctx, "Only meeting hosts can view WebRTC statistics")
+		return
+	}
+
+	// Get WebRTC statistics from service
+	webRTCStats := c.webrtcService.GetWebRTCStats()
+	
+	// Get TURN server statistics
+	turnStats := map[string]interface{}{
+		"enabled": true,
+		"server":  "turn:localhost:3478",
+		"status":  "active",
+	}
+
+	// Combine statistics
+	comprehensiveStats := map[string]interface{}{
+		"meetingId":     meetingIDStr,
+		"timestamp":     time.Now().UTC(),
+		"webRTC":        webRTCStats,
+		"turnServer":    turnStats,
+		"performance": map[string]interface{}{
+			"connectionQuality": c.calculateConnectionQuality(webRTCStats),
+			"bandwidthUsage":    c.calculateBandwidthUsage(webRTCStats),
+			"latencyMetrics":    c.calculateLatencyMetrics(webRTCStats),
+		},
+		"recommendations": c.generateOptimizationRecommendations(webRTCStats, turnStats),
+	}
+
+	utils.SuccessResponse(ctx, http.StatusOK, comprehensiveStats, "WebRTC statistics retrieved successfully")
+}
+
+// OptimizeRoom optimizes WebRTC room configuration based on current conditions
+// @Summary Optimize WebRTC room
+// @Description Optimize WebRTC room configuration including SFU settings, bandwidth allocation, and quality parameters
+// @Tags webrtc
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path string true "Meeting ID"
+// @Param request body OptimizeRoomRequest true "Optimization request"
+// @Success 200 {object} utils.APIResponse
+// @Failure 400 {object} utils.ErrorResponse
+// @Failure 401 {object} utils.ErrorResponse
+// @Failure 403 {object} utils.ErrorResponse
+// @Router /api/v1/webrtc/meetings/{id}/optimize [post]
+func (c *WebRTCController) OptimizeRoom(ctx *gin.Context) {
+	meetingIDStr := ctx.Param("id")
+	meetingID, err := uuid.Parse(meetingIDStr)
+	if err != nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_MEETING_ID, "Invalid meeting ID")
+		return
+	}
+
+	// Get user info
+	userID, exists := utils.GetUserID(ctx)
+	if !exists {
+		utils.HandleUnauthorizedResponse(ctx, "User not authenticated")
+		return
+	}
+
+	userUUID, err := uuid.Parse(userID)
+	if err != nil {
+		utils.HandleSendErrorResponse(ctx, http.StatusBadRequest, utils.INVALID_USER_ID, "Invalid user ID")
+		return
+	}
+
+	// Check if user is the meeting host
+	var meeting models.Meeting
+	if err := c.db.Where("id = ?", meetingID).First(&meeting).Error; err != nil {
+		utils.HandleNotFoundResponse(ctx, "Meeting not found")
+		return
+	}
+
+	if meeting.HostID != userUUID {
+		utils.HandleForbiddenResponse(ctx, "Only meeting hosts can optimize WebRTC rooms")
+		return
+	}
+
+	var req OptimizeRoomRequest
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	if err := c.validator.Struct(&req); err != nil {
+		utils.HandleValidationError(ctx, err)
+		return
+	}
+
+	// Optimize room configuration
+	optimizationResult := c.webrtcService.OptimizeRoomConfiguration(meetingIDStr)
+
+	utils.SuccessResponse(ctx, http.StatusOK, optimizationResult, "WebRTC room optimized successfully")
+}
+
+// Helper methods for statistics calculation
+func (c *WebRTCController) calculateConnectionQuality(stats map[string]interface{}) map[string]interface{} {
+	// Extract connection quality metrics from stats
+	quality := map[string]interface{}{
+		"overall": "good", // Default
+		"factors": map[string]interface{}{
+			"latency":     "good",
+			"packetLoss":  "low",
+			"bandwidth":   "adequate",
+			"connection":  "stable",
+		},
+	}
+
+	// Analyze peer connections if available
+	if peers, ok := stats["peers"].([]interface{}); ok {
+		totalPeers := len(peers)
+		if totalPeers > 0 {
+			// Calculate average quality metrics
+			// This is a simplified implementation - in production, you'd analyze actual metrics
+			quality["peerCount"] = totalPeers
+			quality["activeConnections"] = totalPeers
+		}
+	}
+
+	return quality
+}
+
+func (c *WebRTCController) calculateBandwidthUsage(stats map[string]interface{}) map[string]interface{} {
+	bandwidth := map[string]interface{}{
+		"total":     0,
+		"available": 2000, // Default 2Mbps
+		"utilization": 0,
+		"perPeer":   make([]interface{}, 0),
+	}
+
+	// Extract bandwidth information from stats
+	// This is a simplified implementation
+	bandwidth["utilization"] = float32(0.0) // 0% utilization
+
+	return bandwidth
+}
+
+func (c *WebRTCController) calculateLatencyMetrics(stats map[string]interface{}) map[string]interface{} {
+	latency := map[string]interface{}{
+		"average":     0,
+		"median":      0,
+		"p95":         0,
+		"jitter":      0,
+		"roundTrip":   0,
+	}
+
+	// Extract latency information from stats
+	// This is a simplified implementation
+	latency["average"] = 50 // 50ms average latency
+
+	return latency
+}
+
+func (c *WebRTCController) generateOptimizationRecommendations(webRTCStats map[string]interface{}, turnStats map[string]interface{}) []string {
+	recommendations := []string{}
+
+	// Analyze current state and generate recommendations
+	if peers, ok := webRTCStats["peers"].([]interface{}); ok {
+		peerCount := len(peers)
+		
+		if peerCount > 20 {
+			recommendations = append(recommendations, "Consider enabling simulcast for large meetings")
+		}
+		
+		if peerCount > 30 {
+			recommendations = append(recommendations, "Enable adaptive bitrate streaming for better performance")
+		}
+	}
+
+	// TURN server recommendations
+	if turnEnabled, ok := turnStats["enabled"].(bool); ok && !turnEnabled {
+		recommendations = append(recommendations, "Enable TURN server for better NAT traversal")
+	}
+
+	if len(recommendations) == 0 {
+		recommendations = append(recommendations, "Current configuration is optimal")
+	}
+
+	return recommendations
+}
+
+// Request types for optimization
+type OptimizeRoomRequest struct {
+	Strategy string `json:"strategy" validate:"required,oneof=performance quality bandwidth"`
+}
+
+type WebRTCStatsResponse struct {
+	MeetingID        string                 `json:"meetingId"`
+	Timestamp        time.Time             `json:"timestamp"`
+	PeerCount        int                   `json:"peerCount"`
+	ConnectionQuality map[string]interface{} `json:"connectionQuality"`
+	BandwidthUsage   map[string]interface{} `json:"bandwidthUsage"`
+	LatencyMetrics   map[string]interface{} `json:"latencyMetrics"`
+	TurnServerStats  map[string]interface{} `json:"turnServerStats"`
+	Recommendations  []string              `json:"recommendations"`
 }

@@ -8,7 +8,7 @@ import (
 )
 
 type Meeting struct {
-	ID        uuid.UUID      `gorm:"type:uuid;primary_key" json:"id"`
+	ID        uuid.UUID      `gorm:"type:uuid;primaryKey" json:"id"`
 	Name      string         `gorm:"not null;size:255" json:"name" validate:"required,min=1,max=255"`
 	StartTime time.Time      `gorm:"not null" json:"startTime"`
 	HostID    uuid.UUID      `gorm:"type:uuid;not null" json:"hostId"`
@@ -33,13 +33,13 @@ type MeetingResponse struct {
 }
 
 type CreateMeetingRequest struct {
-	Name         string                    `json:"name" validate:"required,min=1,max=255"`
+	Name         string                    `json:"name" validate:"required,meeting_name"`
 	StartTime    time.Time                 `json:"startTime" validate:"required"`
 	Participants []CreateParticipantRequest `json:"participants,omitempty"`
 }
 
 type UpdateMeetingRequest struct {
-	Name         *string                   `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
+	Name         *string                   `json:"name,omitempty" validate:"omitempty,meeting_name"`
 	StartTime    *time.Time                `json:"startTime,omitempty"`
 	Participants *[]CreateParticipantRequest `json:"participants,omitempty"`
 }

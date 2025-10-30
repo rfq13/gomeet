@@ -8,7 +8,7 @@ import (
 )
 
 type User struct {
-	ID           uuid.UUID `gorm:"type:uuid;primary_key" json:"id"`
+	ID           uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	Username     string    `gorm:"not null;size:255" json:"username" validate:"required,min=2,max=255"`
 	Email        string    `gorm:"uniqueIndex;not null;size:255" json:"email" validate:"required,email"`
 	PasswordHash string    `gorm:"not null;size:255" json:"-"`
@@ -29,19 +29,19 @@ type UserResponse struct {
 }
 
 type RegisterRequest struct {
-	Username string `json:"username" validate:"required,min=2,max=255"`
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required,min=6"`
+	Username string `json:"username" validate:"required,username"`
+	Email    string `json:"email" validate:"required,email_strong"`
+	Password string `json:"password" validate:"required,password_enhanced"`
 }
 
 type LoginRequest struct {
-	Email    string `json:"email" validate:"required,email"`
+	Email    string `json:"email" validate:"required,email_strong"`
 	Password string `json:"password" validate:"required"`
 }
 
 type UpdatePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword" validate:"required"`
-	NewPassword     string `json:"newPassword" validate:"required,min=6"`
+	NewPassword     string `json:"newPassword" validate:"required,password_enhanced"`
 }
 
 func (u *User) ToResponse() UserResponse {

@@ -1,4 +1,5 @@
 import { apiClient, APIException } from "./api-client";
+import { cacheManager } from "./cache";
 import type { User, AuthResponse } from "$types";
 
 // Auth service untuk mengelola autentikasi
@@ -6,7 +7,12 @@ export class AuthService {
   // Login dengan email dan password
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
-      return await apiClient.login(email, password);
+      const response = await apiClient.login(email, password);
+
+      // Cache the current user after successful login
+      cacheManager.cacheCurrentUser(response.user);
+
+      return response;
     } catch (error) {
       if (error instanceof APIException) {
         throw error;
@@ -26,7 +32,12 @@ export class AuthService {
     password: string
   ): Promise<AuthResponse> {
     try {
-      return await apiClient.register(username, email, password);
+      const response = await apiClient.register(username, email, password);
+
+      // Cache the current user after successful registration
+      cacheManager.cacheCurrentUser(response.user);
+
+      return response;
     } catch (error) {
       if (error instanceof APIException) {
         throw error;
@@ -47,13 +58,31 @@ export class AuthService {
       // Tetap lanjutkan proses logout lokal meskipun API call gagal
       console.warn("Logout API call failed:", error);
       apiClient.setAccessToken(null);
+    } finally {
+      // Clear user cache regardless of API call success
+      cacheManager.invalidateAllUsers();
     }
   }
 
   // Mendapatkan user yang sedang login
-  async getCurrentUser(): Promise<User | null> {
+  async getCurrentUser(useCache: boolean = true): Promise<User | null> {
     try {
-      return await apiClient.getCurrentUser();
+      // Try to get from cache first
+      if (useCache) {
+        const cachedUser = cacheManager.getCachedCurrentUser();
+        if (cachedUser) {
+          return cachedUser;
+        }
+      }
+
+      const user = await apiClient.getCurrentUser();
+
+      // Cache the user if found
+      if (user) {
+        cacheManager.cacheCurrentUser(user);
+      }
+
+      return user;
     } catch (error) {
       console.warn("Failed to get current user:", error);
       return null;

@@ -1,4 +1,5 @@
 import { apiClient, APIException } from "./api-client";
+import { cacheManager } from "./cache";
 import type {
   Meeting,
   Participant,
@@ -11,8 +12,20 @@ import type {
 // Meeting service untuk mengelola meeting operations
 export class MeetingService {
   // Mendapatkan daftar meetings
-  async getMeetings(params?: MeetingParams): Promise<MeetingListResponse> {
+  async getMeetings(
+    params?: MeetingParams,
+    useCache: boolean = true
+  ): Promise<MeetingListResponse> {
     try {
+      // Try to get from cache first
+      const paramsString = params ? JSON.stringify(params) : "";
+      if (useCache) {
+        const cachedData = cacheManager.getCachedMeetingList(paramsString);
+        if (cachedData) {
+          return cachedData;
+        }
+      }
+
       const queryParams = new URLSearchParams();
 
       if (params?.page) queryParams.append("page", params.page.toString());
@@ -27,6 +40,10 @@ export class MeetingService {
         success: boolean;
         data: MeetingListResponse;
       }>(endpoint);
+
+      // Cache the response
+      cacheManager.cacheMeetingList(response.data, paramsString);
+
       return response.data;
     } catch (error) {
       if (error instanceof APIException) {
@@ -41,12 +58,23 @@ export class MeetingService {
   }
 
   // Mendapatkan detail meeting
-  async getMeeting(id: string): Promise<Meeting> {
+  async getMeeting(id: string, useCache: boolean = true): Promise<Meeting> {
     try {
+      // Try to get from cache first
+      if (useCache) {
+        const cachedMeeting = cacheManager.getCachedMeetingDetail(id);
+        if (cachedMeeting) {
+          return cachedMeeting;
+        }
+      }
+
       const response = await apiClient.request<{
         success: boolean;
         data: Meeting;
       }>(`/meetings/${id}`);
+
+      // Cache the response
+      cacheManager.cacheMeetingDetail(response.data);
 
       return response.data;
     } catch (error) {
@@ -62,12 +90,26 @@ export class MeetingService {
   }
 
   // Mendapatkan detail meeting publik (tanpa auth)
-  async getMeetingPublic(id: string): Promise<Meeting> {
+  async getMeetingPublic(
+    id: string,
+    useCache: boolean = true
+  ): Promise<Meeting> {
     try {
+      // Try to get from cache first
+      if (useCache) {
+        const cachedMeeting = cacheManager.getCachedMeetingPublic(id);
+        if (cachedMeeting) {
+          return cachedMeeting;
+        }
+      }
+
       const response = await apiClient.request<{
         success: boolean;
         data: Meeting;
       }>(`/meetings/${id}/public`);
+
+      // Cache the response
+      cacheManager.cacheMeetingPublic(response.data);
 
       return response.data;
     } catch (error) {
@@ -92,6 +134,9 @@ export class MeetingService {
         method: "POST",
         body: JSON.stringify(data),
       });
+
+      // Invalidate meeting list cache since new meeting is created
+      cacheManager.invalidateAllMeetings();
 
       return response.data;
     } catch (error) {
@@ -120,6 +165,9 @@ export class MeetingService {
         body: JSON.stringify(data),
       });
 
+      // Invalidate cache for this specific meeting and all meeting lists
+      cacheManager.invalidateMeeting(id);
+
       return response.data;
     } catch (error) {
       if (error instanceof APIException) {
@@ -139,6 +187,9 @@ export class MeetingService {
       await apiClient.request(`/meetings/${id}`, {
         method: "DELETE",
       });
+
+      // Invalidate cache for this specific meeting and all meeting lists
+      cacheManager.invalidateMeeting(id);
     } catch (error) {
       if (error instanceof APIException) {
         throw error;

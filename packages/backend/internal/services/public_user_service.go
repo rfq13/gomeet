@@ -6,19 +6,21 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/filosofine/gomeet-backend/internal/cache"
+	"github.com/filosofine/gomeet-backend/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-
-	"github.com/your-org/gomeet/packages/backend/internal/models"
 )
 
 type PublicUserService struct {
-	db *gorm.DB
+	db        *gorm.DB
+	cacheRepo *cache.CacheRepository
 }
 
-func NewPublicUserService(db *gorm.DB) *PublicUserService {
+func NewPublicUserService(db *gorm.DB, cacheRepo *cache.CacheRepository) *PublicUserService {
 	return &PublicUserService{
-		db: db,
+		db:        db,
+		cacheRepo: cacheRepo,
 	}
 }
 
@@ -26,7 +28,11 @@ func (s *PublicUserService) CreatePublicUser(req *models.CreatePublicUserRequest
 	// Check if public user with this session ID already exists
 	var existingUser models.PublicUser
 	if err := s.db.Where("session_id = ?", req.SessionID).First(&existingUser).Error; err == nil {
-		// User already exists, return existing user
+		// User already exists, cache and return existing user
+		publicUserResponse := existingUser.ToResponse()
+		if cacheErr := s.cacheRepo.SetPublicUser(req.SessionID, &publicUserResponse); cacheErr != nil {
+			fmt.Printf("Failed to cache existing public user: %v\n", cacheErr)
+		}
 		return &existingUser, nil
 	}
 
@@ -40,10 +46,34 @@ func (s *PublicUserService) CreatePublicUser(req *models.CreatePublicUserRequest
 		return nil, fmt.Errorf("failed to create public user: %w", err)
 	}
 
+	// Cache the new public user
+	publicUserResponse := publicUser.ToResponse()
+	if err := s.cacheRepo.SetPublicUser(req.SessionID, &publicUserResponse); err != nil {
+		fmt.Printf("Failed to cache new public user: %v\n", err)
+	}
+
 	return publicUser, nil
 }
 
 func (s *PublicUserService) GetPublicUserBySessionID(sessionID string) (*models.PublicUser, error) {
+	// Try to get from cache first
+	publicUserResponse, found, err := s.cacheRepo.GetPublicUser(sessionID)
+	if err != nil {
+		fmt.Printf("Cache error: %v\n", err)
+	}
+	
+	if found {
+		// Convert response back to model
+		publicUser := &models.PublicUser{
+			ID:        uuid.MustParse(publicUserResponse.ID),
+			Name:      publicUserResponse.Name,
+			SessionID: publicUserResponse.SessionID,
+			CreatedAt: publicUserResponse.CreatedAt,
+		}
+		return publicUser, nil
+	}
+
+	// Cache miss, get from database
 	var publicUser models.PublicUser
 
 	if err := s.db.Where("session_id = ?", sessionID).First(&publicUser).Error; err != nil {
@@ -51,6 +81,12 @@ func (s *PublicUserService) GetPublicUserBySessionID(sessionID string) (*models.
 			return nil, errors.New("public user not found")
 		}
 		return nil, fmt.Errorf("failed to fetch public user: %w", err)
+	}
+
+	// Cache the public user response
+	publicUserResponseCache := publicUser.ToResponse()
+	if err := s.cacheRepo.SetPublicUser(sessionID, &publicUserResponseCache); err != nil {
+		fmt.Printf("Failed to cache public user: %v\n", err)
 	}
 
 	return &publicUser, nil
